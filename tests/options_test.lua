@@ -4,9 +4,9 @@ return function(sim, t)
     local db = sim.env.TankAuditForeverDB
     t.ok(db and db.enabled, "SavedVariables initialized")
 
-    sim:Slash("/taudit")
+    sim:Slash("/tau")
     local panel = sim.env.TankAuditForeverOptionsPanel
-    t.ok(panel and panel:IsShown(), "/taudit opens the options panel")
+    t.ok(panel and panel:IsShown(), "/tau opens the options panel")
     local w = panel.widgets
 
     -- Preview: every tile is shown while the panel is open
@@ -24,11 +24,19 @@ return function(sim, t)
     w.checks.checkHealthstone:Click()
     t.eq(db.checkHealthstone, false, "healthstone checkbox toggles")
 
-    -- Consumable dropdown
-    for _, item in ipairs(w.consumables._menuItems) do
-        if item.data == 3 then item.Pick() end
+    -- Consumables: "+ Elixir" / "+ Flask" on top of food, at most one (a dropdown menu crashed the beta client)
+    w.consumables[2]:Click()
+    t.eq(db.consumableLevel, 2, "+ Elixir selected")
+    w.consumables[3]:Click()
+    t.eq(db.consumableLevel, 3, "+ Flask selected")
+    t.ok(w.consumables[3]:GetChecked() and not w.consumables[2]:GetChecked(), "only one add-on checked")
+    w.consumables[3]:Click()
+    t.eq(db.consumableLevel, 1, "unchecking it means food only")
+    t.ok(not w.consumables[2]:GetChecked() and not w.consumables[3]:GetChecked(), "both unchecked")
+    w.consumables[3]:Click()
+    for _, f in ipairs(sim.frames) do
+        t.ok(f._type ~= "DropdownButton", "no Blizzard menu dropdowns in TankAudit")
     end
-    t.eq(db.consumableLevel, 3, "consumable mode saved")
 
     -- Scale slider (percent)
     w.scale.Slider:SetValue(150)

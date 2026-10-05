@@ -59,6 +59,8 @@ function Alert:OnSpellCast(spellID)
             e.expiresAt = GetTime() + (TAU.db.watchDurations[spellID] or e.def.duration)
             e.warned = false
             e.tile.glow:Hide()
+            -- Keep the tile's own expiry current so the bar can fade it out again after a recast (even in combat)
+            if e.tile.item then e.tile.item.expiresAt = e.expiresAt end
         end
     end
 end

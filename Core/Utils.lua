@@ -102,6 +102,13 @@ function Utils.GetMainHandEnchant()
     return false, 0
 end
 
+-- Should a tile be visible? Only when something needs attention: a prompt (stance/healthstone), a missing buff
+-- (expiresAt == nil), or a buff inside its warning window. Up-and-fine buffs (or with no expiry, expiresAt == 0) hide.
+function Utils.NeedsAttention(item, now)
+    if item.alwaysShow or item.expiresAt == nil then return true end
+    return item.expiresAt > 0 and (item.expiresAt - (now or GetTime())) <= (item.warn or 0)
+end
+
 -- "First Last" for Forever characters (surname is UnitName's 2nd return); nil if secret.
 function Utils.GetUnitFullName(unit)
     if not unit or not UnitExists(unit) then return nil end

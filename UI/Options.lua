@@ -82,26 +82,27 @@ local function CreateButton(parent, text, width, onClick)
     return btn
 end
 
-local CONSUMABLE_LEVELS = {
-    { level = 1, label = "CONS_FOOD" },
-    { level = 2, label = "CONS_ELIXIR" },
-    { level = 3, label = "CONS_FLASK" },
+-- Optional consumables on top of food: "+ Elixir" or "+ Flask" (at most one, both may be off).
+-- consumableLevel: 1 = food only, 2 = + elixir, 3 = + flask.
+-- Not a WowStyle1Dropdown: opening an addon dropdown's menu crashed the Forever beta client
+-- (Lua assertion in Blizzard_Menu AcquireMenu; kb/gotchas.md#menu-crash).
+local CONSUMABLE_OPTIONS = {
+    { level = 2, label = "CONS_ELIXIR_SHORT", x = 268 },
+    { level = 3, label = "CONS_FLASK_SHORT", x = 368 },
 }
 
-local function CreateConsumableDropdown(parent)
-    local dropdown = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
-    dropdown:SetWidth(200)
-    local function IsSelected(level) return TAU:Get("consumableLevel") == level end
-    local function SetSelected(level)
-        TAU:Set("consumableLevel", level)
-        Rescan()
+local function CreateConsumableOptions(parent)
+    local boxes = {}
+    for _, opt in ipairs(CONSUMABLE_OPTIONS) do
+        local cb = CreateCheckbox(parent, L[opt.label], L["CONS_MODE_DESC"], function(checked)
+            TAU:Set("consumableLevel", checked and opt.level or 1)
+            for level, other in pairs(boxes) do other:SetChecked(level == TAU:Get("consumableLevel")) end
+            Rescan()
+        end)
+        cb:SetPoint("TOPLEFT", opt.x, -182)
+        boxes[opt.level] = cb
     end
-    dropdown:SetupMenu(function(_, rootDescription)
-        for _, opt in ipairs(CONSUMABLE_LEVELS) do
-            rootDescription:CreateRadio(L[opt.label], IsSelected, SetSelected, opt.level)
-        end
-    end)
-    return dropdown
+    return boxes
 end
 
 local function BlessingName(key)
@@ -172,8 +173,7 @@ local function CreateOptionsPanel()
         cb:SetPoint("TOPLEFT", def.x, def.y)
         widgets.checks[def.key] = cb
     end
-    widgets.consumables = CreateConsumableDropdown(content)
-    widgets.consumables:SetPoint("TOPLEFT", 272, -182)
+    widgets.consumables = CreateConsumableOptions(content)
 
     -- 3. Blessing priority (per tank class)
     CreateSectionHeader(content, L["UI_SECTION_BLESSINGS"], -276)
@@ -244,7 +244,9 @@ function Options:Refresh()
     for key, cb in pairs(w.watch) do
         cb:SetChecked(TAU:Get(key))
     end
-    w.consumables:GenerateMenu()
+    for level, cb in pairs(w.consumables) do
+        cb:SetChecked(TAU:Get("consumableLevel") == level)
+    end
 
     local priority = TAU:GetBlessingPriority()
     for i, row in ipairs(w.blessings) do
@@ -325,5 +327,6 @@ local function HandleSlashCommands(msg)
 end
 
 SLASH_TANKAUDITFOREVER1 = "/taudit"
-SLASH_TANKAUDITFOREVER2 = "/tankaudit"
+SLASH_TANKAUDITFOREVER2 = "/tau"
+SLASH_TANKAUDITFOREVER3 = "/tankaudit"
 SlashCmdList["TANKAUDITFOREVER"] = HandleSlashCommands

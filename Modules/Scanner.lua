@@ -44,13 +44,33 @@ local function CastOrRequest(ids, castId)
     return { type = "request" }
 end
 
-local function SpellItem(tileKey, key, ids, labelKey)
+local SELF_WARN, GROUP_WARN, CONSUMABLE_WARN = 15, 60, 60
+
+-- item.expiresAt: nil = missing, 0 = up with no known expiry (never "expiring"), otherwise GetTime()-based expiry.
+-- Read out of combat (auras are readable); in combat the bar keeps using these values (Bar visibility ticker).
+local function ExpiryOf(aura)
+    if not aura then return nil end
+    local expires = aura.expirationTime
+    return (expires and expires > 0) and expires or 0
+end
+
+local function FindAura(byId, idSet)
+    for id in pairs(idSet) do
+        if byId[id] then return byId[id] end
+    end
+end
+
+local function SpellItem(tileKey, key, ids, labelKey, warn, byId, extraIds)
+    local idSet = MergeIds(ids, extraIds)
     return {
         tileKey = tileKey,
         key = key,
         label = (labelKey and L[labelKey]) or Utils.SpellName(ids[1]) or key,
         spellId = ids[1],
         messageKey = key,
+        ids = idSet,
+        warn = warn,
+        expiresAt = ExpiryOf(FindAura(byId, idSet)),
     }
 end
 
@@ -72,25 +92,32 @@ local function DispelActions(class, Roster)
     return actions
 end
 
-function Scanner:BuildPlan()
+-- Every tile that applies right now (the bar shows only missing/expiring ones; the rest wait invisibly so they can
+-- fade in during combat when they approach expiry).
+function Scanner:BuildPlan(helpful)
     local Roster = TAU.Roster
     Roster:Update()
     local class = TAU.playerClass
     local solo = Roster.isSolo
     local tiles = {}
 
+    local byId = {}
+    for _, aura in ipairs(helpful or {}) do byId[aura.spellId] = byId[aura.spellId] or aura end
+
     -- 1. Self buffs (always, solo too) and stance (groups only, when not in it)
     if TAU:Get("checkSelf") then
         for _, def in ipairs(D.SELF[class] or {}) do
             if def.stance then
                 if not (def.skipSolo and solo) and Utils.IsKnown(def.stance) and not IsStanceActive(def.stance) then
-                    local item = SpellItem("SELF:" .. def.key, def.key, { def.stance })
+                    local item = SpellItem("SELF:" .. def.key, def.key, { def.stance }, nil, SELF_WARN, {})
                     item.action = { type = "spell", spell = Utils.SpellName(def.stance) }
+                    item.alwaysShow = true -- a prompt: only planned while you're not in the stance
                     tiles[#tiles + 1] = item
                 end
             elseif not def.requireKnown or Utils.KnowsAny(def.ids) then
-                local item = SpellItem("SELF:" .. def.key, def.key, def.ids)
+                local item = SpellItem("SELF:" .. def.key, def.key, def.ids, nil, def.warn or SELF_WARN, byId)
                 item.action = CastOrRequest(def.ids)
+                item.ownCast = def.alert -- SelfAlert keeps expiresAt current from your own casts, even in combat
                 tiles[#tiles + 1] = item
             end
         end
@@ -101,9 +128,9 @@ function Scanner:BuildPlan()
         if TAU:Get("checkGroup") then
             for _, def in ipairs(D.GROUP) do
                 if Roster:Count(def.provider, def.subgroupOnly) > 0 and not (def.skipFor and def.skipFor[class]) then
-                    local item = SpellItem("GROUP:" .. def.key, def.key, def.ids, def.label)
+                    local item = SpellItem("GROUP:" .. def.key, def.key, def.ids, def.label, GROUP_WARN, byId, def.greater)
                     item.action = CastOrRequest(def.ids, def.castId)
-                    item.watchIds = MergeIds(def.ids, def.greater)
+                    item.watchIds = item.ids
                     tiles[#tiles + 1] = item
                 end
             end
@@ -113,9 +140,9 @@ function Scanner:BuildPlan()
             for i = 1, math.min(Roster:Count("PALADIN"), #priority) do
                 local def = D.BLESSINGS[priority[i]]
                 if def then
-                    local item = SpellItem("BLESSING:" .. priority[i], priority[i], def.ids)
+                    local item = SpellItem("BLESSING:" .. priority[i], priority[i], def.ids, nil, GROUP_WARN, byId, def.greater)
                     item.action = CastOrRequest(def.ids)
-                    item.watchIds = MergeIds(def.ids, def.greater)
+                    item.watchIds = item.ids
                     tiles[#tiles + 1] = item
                 end
             end
@@ -123,13 +150,26 @@ function Scanner:BuildPlan()
 
         -- 3. Consumables
         if TAU:Get("checkConsumables") then
-            local function Consumable(key)
-                tiles[#tiles + 1] = { tileKey = "CONS:" .. key, key = key, label = L[key], action = { type = "bags" } }
+            local function Consumable(key, ids)
+                local idSet = Utils.ToSet(ids)
+                local item = { tileKey = "CONS:" .. key, key = key, label = L[key], action = { type = "bags" },
+                               ids = idSet, warn = CONSUMABLE_WARN, expiresAt = ExpiryOf(FindAura(byId, idSet)) }
+                tiles[#tiles + 1] = item
+                return item
             end
-            Consumable("WELL_FED")
+            local fed = Consumable("WELL_FED", D.WELL_FED)
+            if fed.expiresAt == nil then
+                for _, aura in ipairs(helpful or {}) do
+                    if aura.name == L["WELL_FED"] then fed.expiresAt = ExpiryOf(aura) break end
+                end
+            end
             local level = TAU:Get("consumableLevel")
-            if level == 2 then Consumable("ELIXIR") elseif level == 3 then Consumable("FLASK") end
-            Consumable("WEAPON_BUFF")
+            if level == 2 then Consumable("ELIXIR", D.ELIXIRS) elseif level == 3 then Consumable("FLASK", D.FLASKS) end
+            local weapon = Consumable("WEAPON_BUFF", {})
+            local hasEnchant, secondsLeft = Utils.GetMainHandEnchant()
+            if hasEnchant then
+                weapon.expiresAt = secondsLeft > 0 and (GetTime() + secondsLeft) or 0
+            end
         end
     end
 
@@ -141,7 +181,7 @@ function Scanner:BuildPlan()
         end
         if carried == 0 then
             tiles[#tiles + 1] = { tileKey = "HEALTHSTONE", key = "HEALTHSTONE", label = L["HEALTHSTONE"],
-                messageKey = "HEALTHSTONE", action = { type = "request" } }
+                messageKey = "HEALTHSTONE", action = { type = "request" }, alwaysShow = true }
         end
     end
 
@@ -161,7 +201,7 @@ function Scanner:Scan()
         return -- restricted right now; keep the current plan
     end
 
-    self.plan = self:BuildPlan()
+    self.plan = self:BuildPlan(helpful)
     TAU.Gratitude:Check(helpful)
     TAU.Bar:Apply(self.plan)
 end

@@ -32,7 +32,7 @@ function Requests:BuildMessage(entry)
     end
     local link = Utils.SpellLink(entry.spellId, entry.label)
     local msg = string.format(Pick(D.REQUESTS[entry.messageKey] or D.REQUESTS.DEFAULT), link)
-    if entry.kind == "expiring" and entry.expiresAt then
+    if entry.expiresAt and entry.expiresAt > 0 then -- clicked while expiring: say when it fades
         local left = entry.expiresAt - GetTime()
         if left > 0 then
             msg = msg .. string.format(L["MSG_EXPIRING_SUFFIX"], Utils.FormatTime(left))

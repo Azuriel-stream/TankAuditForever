@@ -51,10 +51,20 @@ return function(sim, t)
     local enchant = H.Container(w, weapon)._enchant
     t.ok(enchant and enchant._enchantSlot == 0, "weapon tile shows the main-hand enchant")
 
-    -- Checklist: a present buff keeps its tile (Blizzard draws it lit on top)
+    -- "No tiles = all good": a buff that's up hides its tile (waiting invisibly, not clickable)
     table.insert(w.units.player.auras, H.Aura(6192, "Battle Shout", { duration = 180, expirationTime = w.now + 180 }))
     H.Rescan(w)
-    t.ok(H.Find(w, "SELF:BATTLE_SHOUT"), "present buff stays on the checklist")
+    t.ok(not H.Find(w, "SELF:BATTLE_SHOUT"), "Battle Shout up -> tile hidden")
+    local waitingBs = H.Planned(w, "SELF:BATTLE_SHOUT")
+    t.ok(waitingBs and waitingBs:GetAlpha() == 0 and not waitingBs:IsMouseEnabled(), "waits invisible and unclickable")
+    t.eq(H.Shown(w)[1].item.tileKey, "SELF:DEFENSIVE_STANCE", "visible tiles packed first")
+    -- ...and fades back in for its last 15 s (out of combat: from the readable aura)
+    w:Advance(166)
+    t.ok(H.Find(w, "SELF:BATTLE_SHOUT"), "Battle Shout tile reappears in its warning window")
+    -- refresh it for the rest of the test
+    w.units.player.auras[#w.units.player.auras].expirationTime = w.now + 180
+    H.Rescan(w)
+    t.ok(not H.Find(w, "SELF:BATTLE_SHOUT"), "refreshed -> hidden again")
 
     -- Group buff tile: click asks the party; throttled; gratitude whisper when it arrives
     local fort = H.Find(w, "GROUP:FORTITUDE")

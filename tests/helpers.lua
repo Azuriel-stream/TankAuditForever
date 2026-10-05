@@ -28,12 +28,20 @@ function H.Rescan(sim)
     sim:Advance(1)
 end
 
+-- Tiles the player can see: shown AND not transparent (buffs that are up wait invisibly at alpha 0)
 function H.Shown(sim)
     local out = {}
     for _, tile in ipairs(sim.env.TankAuditForever.Bar:GetTiles()) do
-        if tile:IsShown() and tile.item then out[#out + 1] = tile end
+        if tile:IsShown() and tile:GetAlpha() > 0 and tile.item then out[#out + 1] = tile end
     end
     return out
+end
+
+-- A planned tile whether visible or waiting invisibly
+function H.Planned(sim, tileKey)
+    for _, tile in ipairs(sim.env.TankAuditForever.Bar:GetTiles()) do
+        if tile:IsShown() and tile.item and tile.item.tileKey == tileKey then return tile end
+    end
 end
 
 function H.Find(sim, tileKey)

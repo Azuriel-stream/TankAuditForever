@@ -112,13 +112,17 @@ end
 
 local HINTS = { spell = "HINT_CAST", request = "HINT_REQUEST", bags = "HINT_BAGS" }
 
--- Our tooltip (only reachable while the buff is missing; Blizzard's button covers the tile otherwise)
+-- Our tooltip (visible tiles only: hidden tiles have their mouse disabled)
 local function ShowTooltip(tile)
     local item = tile.item
     if not item then return end
     GameTooltip:SetOwner(tile, "ANCHOR_RIGHT")
     GameTooltip:SetText(item.label or "?", 1, 1, 1)
-    GameTooltip:AddLine(L["HINT_MISSING"], 1, 0.3, 0.3)
+    if item.expiresAt and item.expiresAt > 0 then
+        GameTooltip:AddLine(string.format(L["HINT_EXPIRING"], Utils.FormatTime(item.expiresAt - GetTime())), 1, 0.82, 0)
+    else
+        GameTooltip:AddLine(L["HINT_MISSING"], 1, 0.3, 0.3)
+    end
     local hint = item.action and HINTS[item.action.type]
     if hint then GameTooltip:AddLine(L[hint], 0.6, 0.8, 1) end
     GameTooltip:Show()
@@ -155,6 +159,10 @@ local function CreateTile(def, index)
                 { candidateFilters = { includeSpellIDs = Utils.ToSet(def.ids) } })
             slot:SetAllPoints(tile)
             StyleAuraFrame(slot, def.warn)
+            -- Buff tiles that are fine wait transparent; Blizzard's button would still show its tooltip on hover
+            -- [in-game]. Mouse off: no phantom tooltips, and clicks on a visible (expiring) tile reach our button.
+            pcall(slot.EnableMouse, slot, false)
+            tile.blizzardSlot = slot
         elseif def.kind == "enchant" then
             local container = NewContainer(tile)
             container:SetPoint("TOPLEFT", tile, "TOPLEFT")
@@ -163,7 +171,11 @@ local function CreateTile(def, index)
             local frame = container:AddItemEnchantment(mainHand, {
                 initializeFrame = function(f) f:SetSize(SIZE, SIZE) end,
             })
-            if frame then StyleAuraFrame(frame, def.warn) end
+            if frame then
+                StyleAuraFrame(frame, def.warn)
+                pcall(frame.EnableMouse, frame, false) -- same as aura slots: no tooltip on a hidden tile
+                tile.blizzardSlot = frame
+            end
         end
     end)
     if not ok then
@@ -316,22 +328,37 @@ function Bar:Apply(plan)
     if preview then plan = PreviewPlan() end
     plan = plan or { tiles = {} }
 
-    local visible = {}
+    -- "No tiles = all good": tiles needing attention are packed and centered; the others are placed after them,
+    -- shown but transparent and mouse-disabled, so they can fade in during combat (alpha isn't protected; showing,
+    -- moving and EnableMouse are).
+    local now = GetTime()
+    local attention, waiting = {}, {}
     for _, item in ipairs(plan.tiles) do
         local tile = tilesByKey[item.tileKey]
-        if tile then visible[#visible + 1] = { tile = tile, item = item } end
+        if tile then
+            local entry = { tile = tile, item = item }
+            if preview or Utils.NeedsAttention(item, now) then
+                attention[#attention + 1] = entry
+            else
+                waiting[#waiting + 1] = entry
+            end
+        end
     end
 
     local shown = {}
-    local x = -((#visible * SIZE) + ((#visible - 1) * SPACING)) / 2 + SIZE / 2
-    for _, v in ipairs(visible) do
-        SetupTile(v.tile, v.item)
-        v.tile:ClearAllPoints()
-        v.tile:SetPoint("CENTER", anchor, "CENTER", x, 0)
-        v.tile:Show()
-        shown[v.tile] = true
+    local x = -((#attention * SIZE) + ((#attention - 1) * SPACING)) / 2 + SIZE / 2
+    local function Place(entry, visible)
+        SetupTile(entry.tile, entry.item)
+        entry.tile:ClearAllPoints()
+        entry.tile:SetPoint("CENTER", anchor, "CENTER", x, 0)
+        entry.tile:SetAlpha(visible and 1 or 0)
+        entry.tile:EnableMouse(visible)
+        entry.tile:Show()
+        shown[entry.tile] = true
         x = x + SIZE + SPACING
     end
+    for _, entry in ipairs(attention) do Place(entry, true) end
+    for _, entry in ipairs(waiting) do Place(entry, false) end
     for _, tile in ipairs(tiles) do
         if not shown[tile] then
             tile.item = nil
@@ -392,6 +419,32 @@ function Bar:SetScale(scale)
     if anchor then anchor:SetScale(scale) end
 end
 
+-- Visibility ticker: fades tiles in when they enter their warning window (or go missing), in combat too.
+-- Out of combat the Scanner replans every few seconds and re-packs; here we only adjust alpha (never protected).
+-- In combat nothing updates a tile's expiry except your own casts (SelfAlert, `ownCast` tiles), so only those can
+-- fade back out after a recast. Other buffs keep their pre-combat estimate: once shown they stay shown, and
+-- Blizzard's slot on top shows the real state (e.g. lit with a fresh timer if someone refreshed it).
+local function UpdateVisibility()
+    if not built or preview then return end
+    local now, inCombat = GetTime(), InCombatLockdown()
+    local repack = false
+    for _, tile in ipairs(tiles) do
+        local item = tile.item
+        if item and tile:IsShown() then
+            local needs = Utils.NeedsAttention(item, now)
+            local visible = tile:GetAlpha() > 0
+            if needs and not visible then
+                tile:SetAlpha(1)
+                if not inCombat then repack = true end
+            elseif not needs and visible then
+                tile:SetAlpha(0)
+                if not inCombat then repack = true end
+            end
+        end
+    end
+    if repack then TAU.Scanner:Queue() end
+end
+
 local eventFrame = CreateFrame("Frame", "TAU_BarEventFrame")
 eventFrame:SetScript("OnEvent", function()
     if pendingLayout then
@@ -430,6 +483,7 @@ function Bar:OnInitialize()
     preview = not TAU:Get("locked")
     built = true
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    C_Timer.NewTicker(0.5, UpdateVisibility)
 end
 
 function Bar:OnEnable()

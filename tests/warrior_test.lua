@@ -70,6 +70,7 @@ return function(sim, t)
     end
     t.ok(not Bar:GetDebuffTile("Curse"):IsShown(), "nobody removes curses -> no Curse tile")
     local poison = Bar:GetDebuffTile("Poison")
+    t.ok(not poison.bg:IsShown(), "empty debuff tile is invisible (no square) when not previewing")
     local poisonSlot = H.Container(w, poison)._slots.debuff
     t.ok(poisonSlot._options.candidateFilters.includeDispelTypes.Poison, "Blizzard slot shows Poison debuffs")
     -- Blizzard's debuff button swallows clicks, so our catcher sits on top and asks for a dispel

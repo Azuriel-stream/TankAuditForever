@@ -28,7 +28,8 @@ Top row:
 - **Dispellable debuffs**: one tile per type (Magic, Curse, Poison, Disease) that you or someone in your group is
   high enough level to remove (e.g. a level 15 paladin covers Poison/Disease, Magic needs Cleanse at 42). Shown live
   in combat. **Click it** to dispel yourself (paladin: Purify/Cleanse) or to ask the group ("I have a Poison effect on
-  me - dispel me please!"). The faint square marks the clickable spot when no debuff of that type is on you.
+  me - dispel me please!"). With no debuff of that type on you the tile is invisible, but its spot stays clickable;
+  unlock the bar or open options to see the squares.
 
 **In-combat warning:** for Battle Shout / Righteous Fury, TankAudit plays a warning sound and glows the tile when about
 15 seconds are left, timed from your last cast (the sound can be turned off).

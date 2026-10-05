@@ -216,9 +216,11 @@ local function CreateTopRow()
     for _, dtype in ipairs(D.DISPEL_ORDER) do
         local holder = CreateFrame("Frame", "TAU_Debuff" .. dtype, anchor)
         holder:SetSize(SIZE, SIZE)
-        local bg = holder:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0, 0, 0, 0.25) -- marks the clickable area while empty
+        -- Marks the clickable spot; shown only in preview (unlocked bar / options open), per the user's choice
+        holder.bg = holder:CreateTexture(nil, "BACKGROUND")
+        holder.bg:SetAllPoints()
+        holder.bg:SetColorTexture(0, 0, 0, 0.35)
+        holder.bg:Hide()
         local dok, derr = pcall(function()
             local container = NewContainer(holder)
             container:SetAllPoints(holder)
@@ -351,10 +353,12 @@ function Bar:Apply(plan)
             catcher:SetAttribute("unit", action.unit)
             holder:ClearAllPoints()
             holder:SetPoint("CENTER", anchor, "CENTER", dx, SIZE + ROW_GAP)
+            holder.bg:SetShown(preview)
             holder:Show()
             dx = dx + SIZE + SPACING
-        elseif holder:IsShown() then
-            holder:Hide()
+        else
+            holder.bg:Hide()
+            if holder:IsShown() then holder:Hide() end
         end
     end
 end

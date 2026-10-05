@@ -13,6 +13,8 @@ return function(sim, t)
     local shown, total = 0, #TAU.Bar:GetTiles()
     for _, tile in ipairs(TAU.Bar:GetTiles()) do if tile:IsShown() then shown = shown + 1 end end
     t.ok(total > 0 and shown == total, "all tiles previewed while options are open")
+    local poisonTile = TAU.Bar:GetDebuffTile("Poison")
+    t.ok(poisonTile:IsShown() and poisonTile.bg:IsShown(), "debuff tile squares visible in preview")
 
     -- Sound warning checkbox
     w.watch.watchSound:Click()
@@ -43,6 +45,11 @@ return function(sim, t)
     t.eq(db.locked, false, "/taudit unlock")
     sim:Slash("/taudit lock")
     t.eq(db.locked, true, "/taudit lock")
+
+    -- Closing the options window ends the preview: squares hidden again
+    sim:Slash("/taudit")
+    t.ok(not panel:IsShown(), "options closed")
+    t.ok(not poisonTile.bg:IsShown(), "debuff tile squares hidden after preview")
 
     -- Off / on
     sim:Slash("/taudit off")

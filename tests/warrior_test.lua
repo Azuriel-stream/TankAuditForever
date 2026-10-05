@@ -36,6 +36,16 @@ return function(sim, t)
     local curve = slot._SetDurationText.options.textColor.curve
     t.eq(curve.points[2].x, 15, "countdown turns red at 15 s")
 
+    -- Elixir tile covers Forever's renamed/new elixirs ([in-game] dump: 673 = Elixir of Minor Defense)
+    w.env.TankAuditForeverDB.consumableLevel = 2
+    H.Rescan(w)
+    local elixirSlot = H.Container(w, w.env.TankAuditForever.Bar:GetTile("CONS:ELIXIR"))._slots.tile
+    local elixirIds = elixirSlot._options.candidateFilters.includeSpellIDs
+    t.ok(elixirIds[673] and elixirIds[1250920] and elixirIds[17538], "elixir tile: Minor Defense, Phalanx, Mongoose")
+    t.ok(not elixirIds[7178], "utility draughts (water breathing) don't count as an elixir")
+    w.env.TankAuditForeverDB.consumableLevel = 1
+    H.Rescan(w)
+
     -- Weapon tile uses Blizzard's item-enchant display, sized by us
     local weapon = H.Find(w, "CONS:WEAPON_BUFF")
     local enchant = H.Container(w, weapon)._enchant

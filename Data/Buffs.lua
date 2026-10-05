@@ -72,10 +72,91 @@ D.WELL_FED = { 19705, 19706, 19708, 19709, 19710, 19711, 24799, 24870, 25694, 25
                1225778, 1225779, 1225780, 1225782, 1248406, 1248420, 1248421, 1248422, 1248688,
                1249519, 1249520, 1249521, 1249523, 1249907, 1249926, 1249927, 1283082, 1294007,
                1302064, 1319310 }
--- Battle/guardian elixirs useful to tanks (buff spell IDs, not item IDs). Incomplete by nature:
--- add IDs from /taudit dump. 11405 (Elixir of the Giants) is from Vanilla data [unverified].
-D.ELIXIRS = { 17538, 11348, 3593, 11405, 17537, 11334, 11371, 17539, 24382, 16323 }
-D.FLASKS = { 17626, 17627, 17628, 17629, 17624, 1293740, 1293741, 1293742, 1293743 }
+-- Elixir / flask BUFF spell IDs (not item IDs), generated 2026-10-05 from Wowhead Forever's elixir and flask item
+-- categories: each item's Use: spell. Utility draughts (water breathing, detection, Giant Growth, Noggenfogger) and
+-- plain alcohol are excluded. Forever renamed some buffs after their item (673 = Elixir of Minor Defense) [in-game].
+D.ELIXIRS = {
+    2367, -- Elixir of Minor Strength
+    2374, -- Elixir of Minor Agility
+    2378, -- Elixir of Minor Fortitude
+    3219, -- Minor Troll's Blood Elixir
+    3166, -- Elixir of Wisdom
+    3222, -- Lesser Troll's Blood Elixir
+    3220, -- Elixir of Lesser Defense
+    3160, -- Elixir of Lesser Agility
+    3164, -- Elixir of Ogre Strength
+    3593, -- Elixir of Lesser Fortitude
+    3223, -- Troll's Blood Elixir
+    673, -- Elixir of Minor Defense
+    7844, -- Elixir of Fire Power
+    10667, -- R.O.I.D.S.
+    10668, -- Lung Juice Cocktail
+    10669, -- Ground Scorpok Assay
+    10692, -- Cerebral Cortex Compound
+    10693, -- Gizzard Gum
+    11328, -- Elixir of Agility
+    11349, -- Elixir of Defense
+    11371, -- Gift of Arthas
+    11390, -- Arcane Elixir
+    11396, -- Elixir of Greater Intellect
+    11334, -- Elixir of Greater Agility
+    11405, -- Elixir of Greater Strength
+    11406, -- Potion of Demon Slaying
+    11474, -- Elixir of Shadow Power
+    17038, -- Winterfall Firewater
+    11348, -- Elixir of Greater Defense
+    17535, -- Elixir of the Sages
+    17538, -- Elixir of the Mongoose
+    17537, -- Elixir of Brute Force
+    17539, -- Greater Arcane Elixir
+    21920, -- Elixir of Frost Power
+    24361, -- Major Troll's Blood Elixir
+    24363, -- Mageblood Elixir
+    24382, -- Spirit of Zanza
+    24417, -- Sheen of Zanza
+    24383, -- Swiftness of Zanza
+    1310077, -- Elixir of Holy Power
+    439959, -- Lesser Arcane Elixir
+    1245244, -- Minor Arcane Elixir
+    1245249, -- Elixir of Minor Force
+    1250889, -- Draught of Predatory Senses
+    1250918, -- Elixir of Cunning
+    1250920, -- Elixir of the Phalanx
+    1250922, -- Minor Cleric's Elixir
+    1250924, -- Lesser Cleric's Elixir
+    1250925, -- Cleric's Elixir
+    1250926, -- Greater Cleric's Elixir
+    1250928, -- Elixir of Fortitude
+    1250931, -- Elixir of Greater Fortitude
+    1250932, -- Elixir of Wicked Regeneration
+    1250940, -- Elixir of the Owl
+    1250941, -- Elixir of Sages
+    1250942, -- Minor Mageblood Elixir
+    1250944, -- Lesser Mageblood Elixir
+    1250948, -- Greater Mageblood Elixir
+    1250971, -- Lesser Arcane Elixir
+    1250972, -- Elixir of Nature Power
+    1250974, -- Elixir of Minor Spirit
+    1250976, -- Elixir of Lesser Spirit
+    1250978, -- Elixir of Spirit
+    1250979, -- Elixir of Greater Spirit
+    1250981, -- Elixir of the Whale
+    1250984, -- Elixir of Strength
+    1250985, -- Elixir of Ferocity
+    1250986, -- Elixir of the Grizzly
+    1250988, -- Elixir of Lesser Intellect
+    1250989, -- Elixir of Intellect
+}
+D.FLASKS = {
+    17626, -- Flask of the Titans
+    17627, -- Flask of Distilled Wisdom
+    17628, -- Flask of Supreme Power
+    17629, -- Flask of Chromatic Resistance
+    1293740, -- Flask of Natural Accuracy
+    1293741, -- Flask of Natural Aggression
+    1293742, -- Flask of Natural Precision
+    1293743, -- Flask of Natural Swiftness
+}
 
 D.HEALTHSTONES = { 5512, 19004, 19005, 5511, 19006, 19007, 5509, 19008, 19009,
                    5510, 19010, 19011, 9421, 19012, 19013 }

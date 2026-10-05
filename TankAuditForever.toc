@@ -1,0 +1,29 @@
+## Interface: 16001
+## Title: |cff00FF7FTankAudit|r Forever
+## Notes: Pre-pull audit for tanks: missing/expiring buffs, consumables, dispellable debuffs and unwanted buffs.
+## Author: Azuriel
+## Version: 2.0.0
+## SavedVariables: TankAuditForeverDB
+
+# Locales
+Locales\Localization.lua
+Locales\enUS.lua
+
+# Core Framework
+Core\Init.lua
+Core\Config.lua
+Core\Utils.lua
+
+# Static Data
+Data\Buffs.lua
+Data\Messages.lua
+
+# Functional Modules
+Modules\Roster.lua
+Modules\Scanner.lua
+Modules\Requests.lua
+Modules\Gratitude.lua
+Modules\Bar.lua
+
+# Configuration Interface
+UI\Options.lua

@@ -113,7 +113,7 @@ local function CreateOptionsPanel()
     if optionsPanel then return optionsPanel end
 
     local f = CreateFrame("Frame", "TankAuditForeverOptionsPanel", UIParent, "ButtonFrameTemplate")
-    f:SetSize(540, 540)
+    f:SetSize(540, 620)
     f:SetPoint("CENTER")
     f:SetFrameStrata("HIGH")
     f:SetToplevel(true)
@@ -202,7 +202,24 @@ local function CreateOptionsPanel()
         widgets.blessings[i] = row
     end
 
-    -- 4. Bottom bar
+    -- 4. Combat Watch
+    CreateSectionHeader(content, L["UI_SECTION_WATCH"], -432)
+    widgets.watch = {}
+    local watchChecks = {
+        { key = "combatWatch", text = "OPT_WATCH", x = 14, y = -460 },
+        { key = "watchOnlyInCombat", text = "OPT_WATCH_COMBAT", x = 268, y = -460 },
+        { key = "watchSound", text = "OPT_WATCH_SOUND", x = 14, y = -488 },
+    }
+    for _, def in ipairs(watchChecks) do
+        local cb = CreateCheckbox(content, L[def.text], L[def.text .. "_DESC"], function(checked)
+            TAU:Set(def.key, checked)
+            TAU.CombatWatch:UpdateVisibility()
+        end)
+        cb:SetPoint("TOPLEFT", def.x, def.y)
+        widgets.watch[def.key] = cb
+    end
+
+    -- 5. Bottom bar
     local scan = CreateButton(f, L["BTN_SCAN"], 100, function() TAU.Scanner:Scan() end)
     scan:SetPoint("BOTTOMLEFT", 6, 3)
     local dump = CreateButton(f, L["BTN_DUMP"], 100, function() TAU.Scanner:Dump() end)
@@ -230,6 +247,9 @@ function Options:Refresh()
     w.lock:SetChecked(TAU:Get("locked"))
     w.scale:SetValue(math.floor(TAU:Get("scale") * 100 + 0.5))
     for key, cb in pairs(w.checks) do
+        cb:SetChecked(TAU:Get(key))
+    end
+    for key, cb in pairs(w.watch) do
         cb:SetChecked(TAU:Get(key))
     end
     w.consumables:GenerateMenu()

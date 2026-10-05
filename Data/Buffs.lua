@@ -19,6 +19,19 @@ D.SELF = {
     },
 }
 
+-- Combat Watch: self buffs kept visible IN COMBAT through a Blizzard aura container (exact timer) plus a cast-based
+-- estimate for the audio warning (kb/addons/TankAudit.md). `duration` = fallback until the real one is learned.
+D.WATCH = {
+    WARRIOR = {
+        { key = "BATTLE_SHOUT", ids = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 27578 },
+          icon = "Interface\\Icons\\Ability_Warrior_BattleShout", duration = 180 },
+    },
+    PALADIN = {
+        { key = "RIGHTEOUS_FURY", ids = { 25780 },
+          icon = "Interface\\Icons\\Spell_Holy_SealOfFury", duration = 1800 },
+    },
+}
+
 -- Group buffs from other classes. Checked only when a `provider` class is in the group
 -- (`subgroupOnly`: in your raid subgroup). `skipFor` = tank classes that don't need it.
 -- `greater` = group/greater versions that also satisfy the buff.

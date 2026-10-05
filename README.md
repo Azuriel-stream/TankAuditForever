@@ -21,6 +21,16 @@ When a buff you asked for arrives, TankAudit **whispers the caster a thank-you**
 
 When you're solo, buff reminders only appear if you have a hostile target and are missing a self buff.
 
+### Combat Watch: your shout/fury timer in combat
+Above the bar sits a **Combat Watch** icon for your key self buff: **Battle Shout** (warrior) or **Righteous Fury**
+(paladin). It's drawn by Blizzard's own aura display, so it keeps a live, exact countdown **in combat**, which matters when
+chain pulling without an out-of-combat moment:
+- the countdown turns **red** under 15 seconds, with a sweep showing the time left
+- when the buff is gone, a dimmed red icon shows it's missing
+- in combat, a **warning sound and red glow** fire when about 15 seconds are left (timed from your last cast; turn off in options)
+
+Options: show/hide Combat Watch, only in combat, sound + glow warning.
+
 ### In combat
 WoW: Forever hides aura information from addons during combat, and the bar's click-to-cast buttons are protected. So
 the bar **freezes in its pre-combat state** while you fight: countdowns keep running, and a Salvation cancel button set

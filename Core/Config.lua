@@ -18,6 +18,13 @@ TAU.DefaultConfig = {
     checkUnwanted = true,
     gratitude = true,          -- whisper the caster when a requested buff arrives
 
+    -- Combat Watch (in-combat self-buff timers)
+    combatWatch = true,
+    watchOnlyInCombat = false,
+    watchSound = true,
+    watchWarnSeconds = 15,
+    watchDurations = {},       -- [spellID] = real duration learned out of combat
+
     -- With N paladins in the group, the first N entries are expected (per tank class).
     blessingPriority = {
         WARRIOR = { "KINGS", "MIGHT", "LIGHT", "WISDOM" },

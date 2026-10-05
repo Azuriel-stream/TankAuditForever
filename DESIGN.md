@@ -15,7 +15,7 @@ inventory and feasibility analysis.
 | Weapon buff / Rockbiter | `GetWeaponEnchantInfo()` + tooltip scan | `C_Item.GetWeaponEnchantInfo(Enum.WeaponSlot.MainHand)` |
 | Healthstone | Bag scan for "Healthstone" in links | `C_Item.GetItemCount` over healthstone item IDs |
 | Click to cast / cancel | `CastSpellByName`, `CancelPlayerBuff` | `SecureActionButtonTemplate` (`type=spell` / `type=cancelaura`). Those functions are protected |
-| Combat | Rescans every 3 s | **Frozen**: auras are secret and secure buttons are locked in combat |
+| Combat | Rescans every 3 s | **Frozen**: auras are secret and secure buttons are locked in combat. **Combat Watch** keeps the key self buff's timer live via a Blizzard aura container + cast timing |
 | Gratitude | Guess the caster from class counts; group chat | `AuraData.sourceUnit` → **whisper the real caster** |
 | Position | X/Y edit boxes | Drag while unlocked + reset |
 | Config | XML frame, `UIDropDownMenu`, Options templates | `ButtonFrameTemplate` panel, `WowStyle1DropdownTemplate`, `MinimalSliderWithSteppersTemplate` |
@@ -46,6 +46,7 @@ Bar button click ──► secure action (spell / cancelaura) ──► HookScri
 | `Modules/Requests.lua` | chat requests (throttled), bags; remembers the pending request |
 | `Modules/Gratitude.lua` | thank-you whisper |
 | `Modules/Bar.lua` | 16 secure buttons, layout, countdowns, drag/lock, preview, combat freeze |
+| `Modules/CombatWatch.lua` | in-combat self-buff timer: Blizzard `CustomAuraContainer` slot (exact, display-only) over a "missing" placeholder, plus a cast-based estimate (`UNIT_SPELLCAST_SUCCEEDED`, own casts aren't secret) for the sound/glow warning. Built at `ADDON_LOADED` (aura buttons lock layout at `PLAYER_LOGIN`); visibility via alpha only |
 | `UI/Options.lua` | options window, `/taudit` commands |
 | `tests/` | headless wowsim tests (run `../tools/test.ps1 TankAuditForever`) |
 

@@ -1,4 +1,4 @@
--- Paladin tank: self-castable buffs, Salvation cancel, own dispel, unsupported classes.
+-- Paladin tank: self-castable tiles, Salvation cancel slot, own dispel types, unsupported classes.
 local H = require("helpers")
 
 return function(sim, t)
@@ -11,40 +11,43 @@ return function(sim, t)
         s.known[4987] = true    -- Cleanse
     end)
     H.Rescan(p)
+    local keys = H.Keys(p)
 
-    local rf = H.Find(p, "Righteous Fury")
-    t.ok(rf and rf:GetAttribute("spell") == "Righteous Fury", "missing Righteous Fury is castable: " .. H.Labels(p))
-
-    local aura = H.Find(p, "Paladin Aura")
+    local rf = H.Find(p, "SELF:RIGHTEOUS_FURY")
+    t.ok(rf and rf:GetAttribute("spell") == "Righteous Fury", "Righteous Fury tile casts: " .. keys)
+    local aura = H.Find(p, "GROUP:PALADIN_AURA")
     t.ok(aura and aura:GetAttribute("spell") == "Devotion Aura", "paladin casts Devotion Aura itself")
 
-    -- Two paladins (player + party2): the paladin priority list starts Kings, Wisdom
-    local kings = H.Find(p, "Blessing of Kings")
+    -- Two paladins (player + party2): paladin priority starts Kings, Wisdom
+    local kings = H.Find(p, "BLESSING:KINGS")
     t.ok(kings and kings:GetAttribute("type") == "spell", "Kings is self-castable")
-    t.ok(H.Find(p, "Blessing of Wisdom"), "second paladin -> second blessing (Wisdom)")
-    t.ok(not H.Find(p, "Battle Shout"), "no warrior in group -> no Battle Shout")
+    local wisdom = H.Find(p, "BLESSING:WISDOM")
+    t.ok(wisdom and wisdom:GetAttribute("type") == nil, "Wisdom (not known) is requested")
+    t.ok(not H.Find(p, "GROUP:BATTLE_SHOUT"), "no warrior in group -> no Battle Shout")
+    t.ok(not H.Find(p, "SELF:BATTLE_SHOUT"), "paladin has no Battle Shout self tile")
 
-    -- Unwanted Salvation: click cancels it (secure cancelaura)
-    table.insert(p.units.player.auras, H.Aura(1038, "Blessing of Salvation", { expirationTime = p.now + 3600 }))
-    -- A dispellable debuff the paladin can Cleanse
-    table.insert(p.units.player.auras, H.Aura(18267, "Curse of Weakness", { isHarmful = true, dispelName = "Curse" }))
-    table.insert(p.units.player.auras, H.Aura(17228, "Shadow Bolt Volley", { isHarmful = true, dispelName = "Magic" }))
-    H.Rescan(p)
+    -- Salvation slot: Blizzard right-click cancel, filtered to Salvation (+ Greater)
+    local Bar = p.env.TankAuditForever.Bar
+    local salv = H.Container(p, Bar:GetSalvationHolder())._slots.unwanted
+    t.ok(salv._options.candidateFilters.includeSpellIDs[1038], "Salvation slot includes Blessing of Salvation")
+    t.ok(salv._options.candidateFilters.includeSpellIDs[25895], "...and Greater Blessing of Salvation")
+    t.eq(salv._SetCancelAuraButtons.obj, "RightButtonUp", "right-click cancels")
 
-    local salv = H.Find(p, "Blessing of Salvation")
-    t.ok(salv and salv.entry.kind == "unwanted", "Salvation shown as unwanted")
-    t.eq(salv:GetAttribute("type"), "cancelaura", "Salvation button cancels the aura")
-    salv:Click()
-    t.eq(p.casts[#p.casts].cancel, "Blessing of Salvation", "secure cancel performed")
-    H.Rescan(p)
-    t.ok(not H.Find(p, "Blessing of Salvation"), "Salvation gone after cancel")
-
-    local magic = H.Find(p, "Shadow Bolt Volley")
-    t.ok(magic and magic:GetAttribute("spell") == "Cleanse", "paladin dispels Magic with Cleanse")
-    t.ok(not H.Find(p, "Curse of Weakness"), "curse hidden: nobody in the group can remove it")
+    -- Own Cleanse covers Magic/Poison/Disease: clicking the debuff tile casts Cleanse on yourself (in combat too)
+    for _, dtype in ipairs({ "Magic", "Poison", "Disease" }) do
+        local tile = Bar:GetDebuffTile(dtype)
+        t.ok(tile:IsShown(), dtype .. " tile shown")
+        t.eq(tile.catcher:GetAttribute("spell"), "Cleanse", dtype .. " tile casts Cleanse")
+    end
+    t.ok(not Bar:GetDebuffTile("Curse"):IsShown(), "nobody removes curses -> no Curse tile")
+    p:EnterCombat()
+    Bar:GetDebuffTile("Poison").catcher:Click()
+    t.eq(p.casts[#p.casts].spell, "Cleanse", "click on the Poison tile casts Cleanse in combat")
+    t.eq(p.casts[#p.casts].unit, "player", "...on yourself")
+    p:LeaveCombat()
 
     -- Unsupported class: no bar, a clear message
     local mage = t.fresh(function(s) s.units.player.class = "MAGE" end)
     t.contains(mage.output, "not supported", "unsupported class is told so")
-    t.eq(#H.Shown(mage), 0, "no bar for unsupported classes")
+    t.eq(#mage.env.TankAuditForever.Bar:GetTiles(), 0, "no tiles built for unsupported classes")
 end

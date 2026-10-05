@@ -7,28 +7,20 @@ local ADDON_NAME, TAU = ...
 TAU.Data = {}
 local D = TAU.Data
 
--- Self buffs per tank class. `stance` = shapeshift spellID that must be active instead of an aura.
--- `knownIds` = only check when the player knows any of these spells. `skipSolo` = ignore when ungrouped.
+-- Self buffs per tank class. `stance` = shapeshift spellID that must be active (an OOC prompt, not an aura tile).
+-- `requireKnown` = only check when the player knows the spell. `skipSolo` = ignore when ungrouped.
+-- `warn` = seconds before expiry at which the tile's countdown turns red.
+-- `alert` = in-combat sound + glow, timed from your own last cast (own casts aren't secret);
+-- `duration` = fallback until the real duration is learned out of combat.
 D.SELF = {
     WARRIOR = {
-        { key = "BATTLE_SHOUT", ids = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 27578 }, warn = 15, requireKnown = true },
-        { key = "DEFENSIVE_STANCE", stance = 71, skipSolo = true },
+        { key = "BATTLE_SHOUT", ids = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 27578 }, warn = 15,
+          requireKnown = true, alert = true, duration = 180, icon = "Interface\\Icons\\Ability_Warrior_BattleShout" },
+        { key = "DEFENSIVE_STANCE", stance = 71, skipSolo = true, icon = "Interface\\Icons\\Ability_Warrior_DefensiveStance" },
     },
     PALADIN = {
-        { key = "RIGHTEOUS_FURY", ids = { 25780 }, warn = 60, requireKnown = true },
-    },
-}
-
--- Combat Watch: self buffs kept visible IN COMBAT through a Blizzard aura container (exact timer) plus a cast-based
--- estimate for the audio warning (kb/addons/TankAudit.md). `duration` = fallback until the real one is learned.
-D.WATCH = {
-    WARRIOR = {
-        { key = "BATTLE_SHOUT", ids = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 27578 },
-          icon = "Interface\\Icons\\Ability_Warrior_BattleShout", duration = 180 },
-    },
-    PALADIN = {
-        { key = "RIGHTEOUS_FURY", ids = { 25780 },
-          icon = "Interface\\Icons\\Spell_Holy_SealOfFury", duration = 1800 },
+        { key = "RIGHTEOUS_FURY", ids = { 25780 }, warn = 60, requireKnown = true, alert = true, duration = 1800,
+          icon = "Interface\\Icons\\Spell_Holy_SealOfFury" },
     },
 }
 
@@ -36,19 +28,19 @@ D.WATCH = {
 -- (`subgroupOnly`: in your raid subgroup). `skipFor` = tank classes that don't need it.
 -- `greater` = group/greater versions that also satisfy the buff.
 D.GROUP = {
-    { key = "FORTITUDE", provider = "PRIEST",
+    { key = "FORTITUDE", provider = "PRIEST", icon = "Interface\\Icons\\Spell_Holy_WordFortitude",
       ids = { 1243, 1244, 1245, 2791, 10937, 10938 }, greater = { 21562, 21564 } },
-    { key = "SPIRIT", provider = "PRIEST",
+    { key = "SPIRIT", provider = "PRIEST", icon = "Interface\\Icons\\Spell_Holy_DivineSpirit",
       ids = { 14752, 14818, 14819, 27841 }, greater = { 27681 } },
-    { key = "MARK_OF_THE_WILD", provider = "DRUID",
+    { key = "MARK_OF_THE_WILD", provider = "DRUID", icon = "Interface\\Icons\\Spell_Nature_Regeneration",
       ids = { 1126, 5232, 6756, 5234, 8907, 9884, 9885, 1291335, 1310503 }, greater = { 21849, 21850 } },
-    { key = "THORNS", provider = "DRUID",
+    { key = "THORNS", provider = "DRUID", icon = "Interface\\Icons\\Spell_Nature_Thorns",
       ids = { 467, 782, 1075, 8914, 9756, 9910 } },
-    { key = "ARCANE_INTELLECT", provider = "MAGE", skipFor = { WARRIOR = true },
+    { key = "ARCANE_INTELLECT", provider = "MAGE", icon = "Interface\\Icons\\Spell_Holy_MagicalSentry", skipFor = { WARRIOR = true },
       ids = { 1459, 1460, 1461, 10156, 10157 }, greater = { 23028 } },
-    { key = "BATTLE_SHOUT", provider = "WARRIOR", subgroupOnly = true, skipFor = { WARRIOR = true },
+    { key = "BATTLE_SHOUT", provider = "WARRIOR", icon = "Interface\\Icons\\Ability_Warrior_BattleShout", subgroupOnly = true, skipFor = { WARRIOR = true },
       ids = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 27578 } },
-    { key = "PALADIN_AURA", provider = "PALADIN", subgroupOnly = true, label = "PALADIN_AURA",
+    { key = "PALADIN_AURA", provider = "PALADIN", icon = "Interface\\Icons\\Spell_Holy_DevotionAura", subgroupOnly = true, label = "PALADIN_AURA",
       castId = 465, -- Devotion Aura: what a paladin tank casts when no aura is up
       ids = { 465, 643, 1032, 10290, 10291, 10292, 10293,   -- Devotion
               7294, 10298, 10299, 10300, 10301,             -- Retribution
@@ -61,11 +53,14 @@ D.GROUP = {
 -- Paladin blessings, ordered by the user's priority list (Config.blessingPriority).
 -- Blessing of Sanctuary isn't in Forever (Wowhead); Kings is baseline (not a talent) on Forever.
 D.BLESSINGS = {
-    KINGS  = { ids = { 20217 }, greater = { 25898 } },
-    MIGHT  = { ids = { 19740, 19834, 19835, 19836, 19837, 19838, 25291 }, greater = { 25782, 25916 } },
-    LIGHT  = { ids = { 19977, 19978, 19979 }, greater = { 25890 } },
-    WISDOM = { ids = { 19742, 19850, 19852, 19853, 19854, 25290 }, greater = { 25894, 25918 } },
+    KINGS  = { icon = "Interface\\Icons\\Spell_Magic_MageArmor", ids = { 20217 }, greater = { 25898 } },
+    MIGHT  = { icon = "Interface\\Icons\\Spell_Holy_FistOfJustice", ids = { 19740, 19834, 19835, 19836, 19837, 19838, 25291 }, greater = { 25782, 25916 } },
+    LIGHT  = { icon = "Interface\\Icons\\Spell_Holy_PrayerOfHealing02", ids = { 19977, 19978, 19979 }, greater = { 25890 } },
+    WISDOM = { icon = "Interface\\Icons\\Spell_Holy_SealOfWisdom", ids = { 19742, 19850, 19852, 19853, 19854, 25290 }, greater = { 25894, 25918 } },
 }
+
+-- Fixed tile order for blessing tiles (which ones show comes from the user's priority list)
+D.BLESSING_ORDER = { "KINGS", "MIGHT", "LIGHT", "WISDOM" }
 
 -- Buffs a tank wants removed (shown as click-to-cancel).
 D.UNWANTED = {
@@ -95,13 +90,16 @@ D.ICONS = {
     UNKNOWN = "Interface\\Icons\\INV_Misc_QuestionMark",
 }
 
--- Which classes can remove each debuff type
-D.DISPEL_CLASSES = {
-    Magic   = { PRIEST = true, PALADIN = true },
-    Curse   = { MAGE = true, DRUID = true },
-    Poison  = { DRUID = true, PALADIN = true, SHAMAN = true },
-    Disease = { PRIEST = true, PALADIN = true, SHAMAN = true },
+-- Which classes can remove each debuff type, and from which level (Wowhead Forever learn levels:
+-- Dispel Magic 18, Cleanse 42, Remove Lesser Curse 18, Remove Curse 24, Cure Poison 14 (druid) / 16 (shaman),
+-- Purify 8, Cure Disease 14 (priest) / 22 (shaman)).
+D.DISPEL_LEVELS = {
+    Magic   = { PRIEST = 18, PALADIN = 42 },
+    Curse   = { MAGE = 18, DRUID = 24 },
+    Poison  = { DRUID = 14, PALADIN = 8, SHAMAN = 16 },
+    Disease = { PRIEST = 14, PALADIN = 8, SHAMAN = 22 },
 }
+D.DISPEL_ORDER = { "Magic", "Curse", "Poison", "Disease" }
 
 -- The player's own dispels per debuff type (first known spell is cast)
 D.PLAYER_DISPELS = {

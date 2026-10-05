@@ -1,8 +1,9 @@
 local ADDON_NAME, TAU = ...
 
--- Builds the audit state from the player's auras, group, gear and bags.
--- Forever: aura data is secret in combat (kb/restrictions.md), so scanning runs only out of combat and the bar keeps
--- its last pre-combat state while fighting.
+-- Out of combat, decides WHAT the audit bar shows: which tiles (checklist), in which order, and what clicking a
+-- missing tile does. Whether each buff is up, and its timer, is drawn live by Blizzard aura slots on the tiles
+-- (Modules/Bar.lua), which keeps working in combat. Forever hides aura data from addons in combat, so planning only
+-- runs out of combat and the layout freezes during fights (kb/restrictions.md).
 local Scanner = TAU:RegisterModule("Scanner")
 local Utils, D, L = TAU.Utils, TAU.Data, TAU.L
 
@@ -10,33 +11,11 @@ local frame = CreateFrame("Frame", "TAU_ScannerFrame")
 local ticker = nil
 local queued = false
 
-local GROUP_WARN = 60        -- seconds before a group buff counts as expiring
-local CONSUMABLE_WARN = 60
-
--- state.top = debuffs / unwanted buffs, state.bottom = missing + expiring buffs
-Scanner.state = { top = {}, bottom = {} }
-
--- Entry: { key, kind = "missing"|"expiring"|"debuff"|"unwanted", label, icon, spellId, expiresAt,
---          messageKey, watchIds, dispelType, action = { type = "spell"|"cancelaura"|"request"|"bags", spell, unit } }
-
-local function ReadAuras(filter)
-    local list, byId = {}, {}
-    local ok = Utils.ForEachAura("player", filter, function(aura)
-        list[#list + 1] = aura
-        byId[aura.spellId] = byId[aura.spellId] or aura
-    end)
-    return ok, list, byId
-end
-
-local function FindAura(byId, ...)
-    for i = 1, select("#", ...) do
-        local ids = select(i, ...)
-        for _, id in ipairs(ids or {}) do
-            if byId[id] then return byId[id] end
-        end
-    end
-    return nil
-end
+-- plan.tiles = ordered list of items: { tileKey, key, label, spellId, messageKey, watchIds,
+--                                       action = { type = "spell"|"request"|"bags", spell, unit } }
+-- plan.salvation = show the Salvation (cancel) slot
+-- plan.dispelActions = { [dispelType] = action } for the debuff tiles to show ("spell" = own dispel, "request" = ask)
+Scanner.plan = { tiles = {} }
 
 local function IsStanceActive(spellID)
     for i = 1, GetNumShapeshiftForms() do
@@ -53,11 +32,11 @@ local function MergeIds(a, b)
 end
 
 -- Action for a buff the player may be able to cast on themselves
-local function CastOrRequest(castIds, castId)
+local function CastOrRequest(ids, castId)
     if castId and Utils.IsKnown(castId) then
         return { type = "spell", spell = Utils.SpellName(castId), unit = "player" }
     end
-    for _, id in ipairs(castIds or {}) do
+    for _, id in ipairs(ids or {}) do
         if Utils.IsKnown(id) then
             return { type = "spell", spell = Utils.SpellName(id), unit = "player" }
         end
@@ -65,181 +44,126 @@ local function CastOrRequest(castIds, castId)
     return { type = "request" }
 end
 
--- Adds a missing or expiring entry for a buff definition
-local function Evaluate(list, aura, warn, entry)
-    local now = GetTime()
-    if not aura then
-        entry.kind = "missing"
-        list[#list + 1] = entry
-    elseif aura.expirationTime and aura.expirationTime > 0 and (aura.expirationTime - now) < warn then
-        entry.kind = "expiring"
-        entry.expiresAt = aura.expirationTime
-        list[#list + 1] = entry
-    end
-end
-
-local function SpellEntry(key, ids, labelKey)
+local function SpellItem(tileKey, key, ids, labelKey)
     return {
+        tileKey = tileKey,
         key = key,
         label = (labelKey and L[labelKey]) or Utils.SpellName(ids[1]) or key,
-        icon = Utils.SpellIcon(ids[1]) or D.ICONS.UNKNOWN,
         spellId = ids[1],
         messageKey = key,
     }
 end
 
-function Scanner:Scan()
-    if not TAU.isEnabled then return end
-    if InCombatLockdown() then return end
+-- Dispel types worth showing, with the click action for each: cast your own dispel if you know one,
+-- otherwise ask the group (only if someone in it has the class AND level to remove that type).
+local function DispelActions(class, Roster)
+    local actions = {}
+    for dtype, requirements in pairs(D.DISPEL_LEVELS) do
+        for _, id in ipairs((D.PLAYER_DISPELS[class] or {})[dtype] or {}) do
+            if Utils.IsKnown(id) then
+                actions[dtype] = { type = "spell", spell = Utils.SpellName(id), unit = "player" }
+                break
+            end
+        end
+        if not actions[dtype] and Roster:OthersCanDispel(requirements) then
+            actions[dtype] = { type = "request" }
+        end
+    end
+    return actions
+end
 
-    local okHelp, helpful, helpById = ReadAuras("HELPFUL")
-    local okHarm, harmful = ReadAuras("HARMFUL")
-    if not okHelp or not okHarm then return end -- restricted right now; keep the previous state
-
+function Scanner:BuildPlan()
     local Roster = TAU.Roster
     Roster:Update()
     local class = TAU.playerClass
     local solo = Roster.isSolo
-    local top, selfMissing, bottom = {}, {}, {}
+    local tiles = {}
 
-    -- 1. Self buffs / stance
+    -- 1. Self buffs (always, solo too) and stance (groups only, when not in it)
     if TAU:Get("checkSelf") then
         for _, def in ipairs(D.SELF[class] or {}) do
             if def.stance then
                 if not (def.skipSolo and solo) and Utils.IsKnown(def.stance) and not IsStanceActive(def.stance) then
-                    local entry = SpellEntry(def.key, { def.stance })
-                    entry.kind = "missing"
-                    entry.action = { type = "spell", spell = Utils.SpellName(def.stance) }
-                    selfMissing[#selfMissing + 1] = entry
+                    local item = SpellItem("SELF:" .. def.key, def.key, { def.stance })
+                    item.action = { type = "spell", spell = Utils.SpellName(def.stance) }
+                    tiles[#tiles + 1] = item
                 end
             elseif not def.requireKnown or Utils.KnowsAny(def.ids) then
-                local entry = SpellEntry(def.key, def.ids)
-                entry.action = CastOrRequest(def.ids)
-                Evaluate(selfMissing, FindAura(helpById, def.ids), def.warn or 15, entry)
+                local item = SpellItem("SELF:" .. def.key, def.key, def.ids)
+                item.action = CastOrRequest(def.ids)
+                tiles[#tiles + 1] = item
             end
         end
     end
 
-    -- 2. Group buffs from classes present in the group
-    if TAU:Get("checkGroup") and not solo then
-        for _, def in ipairs(D.GROUP) do
-            local present = Roster:Count(def.provider, def.subgroupOnly) > 0
-            if present and not (def.skipFor and def.skipFor[class]) then
-                local entry = SpellEntry(def.key, def.ids, def.label)
-                entry.action = CastOrRequest(def.ids, def.castId)
-                entry.watchIds = MergeIds(def.ids, def.greater)
-                Evaluate(bottom, FindAura(helpById, def.ids, def.greater), GROUP_WARN, entry)
+    if not solo then
+        -- 2. Group buffs from classes present
+        if TAU:Get("checkGroup") then
+            for _, def in ipairs(D.GROUP) do
+                if Roster:Count(def.provider, def.subgroupOnly) > 0 and not (def.skipFor and def.skipFor[class]) then
+                    local item = SpellItem("GROUP:" .. def.key, def.key, def.ids, def.label)
+                    item.action = CastOrRequest(def.ids, def.castId)
+                    item.watchIds = MergeIds(def.ids, def.greater)
+                    tiles[#tiles + 1] = item
+                end
+            end
+
+            -- Paladin blessings: the top N of the priority list, N = paladins in the group
+            local priority = TAU:GetBlessingPriority()
+            for i = 1, math.min(Roster:Count("PALADIN"), #priority) do
+                local def = D.BLESSINGS[priority[i]]
+                if def then
+                    local item = SpellItem("BLESSING:" .. priority[i], priority[i], def.ids)
+                    item.action = CastOrRequest(def.ids)
+                    item.watchIds = MergeIds(def.ids, def.greater)
+                    tiles[#tiles + 1] = item
+                end
             end
         end
 
-        -- Paladin blessings: the top N of the priority list, N = paladins in the group
-        local paladins = Roster:Count("PALADIN")
-        local priority = TAU:GetBlessingPriority()
-        for i = 1, math.min(paladins, #priority) do
-            local key = priority[i]
-            local def = D.BLESSINGS[key]
-            if def then
-                local entry = SpellEntry(key, def.ids)
-                entry.action = CastOrRequest(def.ids)
-                entry.watchIds = MergeIds(def.ids, def.greater)
-                Evaluate(bottom, FindAura(helpById, def.ids, def.greater), GROUP_WARN, entry)
+        -- 3. Consumables
+        if TAU:Get("checkConsumables") then
+            local function Consumable(key)
+                tiles[#tiles + 1] = { tileKey = "CONS:" .. key, key = key, label = L[key], action = { type = "bags" } }
             end
+            Consumable("WELL_FED")
+            local level = TAU:Get("consumableLevel")
+            if level == 2 then Consumable("ELIXIR") elseif level == 3 then Consumable("FLASK") end
+            Consumable("WEAPON_BUFF")
         end
     end
 
-    -- 3. Consumables (groups only)
-    if TAU:Get("checkConsumables") and not solo then
-        local function Category(key, aura, iconKey)
-            local entry = { key = key, label = L[key], icon = D.ICONS[iconKey or key], action = { type = "bags" } }
-            Evaluate(bottom, aura, CONSUMABLE_WARN, entry)
-        end
-
-        local fed = FindAura(helpById, D.WELL_FED)
-        if not fed then
-            for _, aura in ipairs(helpful) do
-                if aura.name == L["WELL_FED"] then fed = aura break end
-            end
-        end
-        Category("WELL_FED", fed)
-
-        local hasEnchant, secondsLeft = Utils.GetMainHandEnchant()
-        local weaponAura = nil
-        if hasEnchant then
-            -- expirationTime 0 = present without a known expiry
-            weaponAura = { expirationTime = secondsLeft > 0 and (GetTime() + secondsLeft) or 0 }
-        end
-        Category("WEAPON_BUFF", weaponAura)
-
-        local level = TAU:Get("consumableLevel")
-        if level == 2 then
-            Category("ELIXIR", FindAura(helpById, D.ELIXIRS))
-        elseif level == 3 then
-            Category("FLASK", FindAura(helpById, D.FLASKS))
-        end
-    end
-
-    -- 4. Healthstone (a warlock other than you is in the group)
+    -- 4. Healthstone: only when a warlock (other than you) is around and you carry none
     if TAU:Get("checkHealthstone") and Roster:CountOthers("WARLOCK") > 0 then
         local carried = 0
         for _, itemID in ipairs(D.HEALTHSTONES) do
             carried = carried + (C_Item.GetItemCount(itemID) or 0)
         end
         if carried == 0 then
-            bottom[#bottom + 1] = { key = "HEALTHSTONE", kind = "missing", label = L["HEALTHSTONE"],
-                icon = D.ICONS.HEALTHSTONE, messageKey = "HEALTHSTONE", action = { type = "request" } }
+            tiles[#tiles + 1] = { tileKey = "HEALTHSTONE", key = "HEALTHSTONE", label = L["HEALTHSTONE"],
+                messageKey = "HEALTHSTONE", action = { type = "request" } }
         end
     end
 
-    -- 5. Unwanted buffs (click to cancel)
-    if TAU:Get("checkUnwanted") then
-        for _, def in ipairs(D.UNWANTED) do
-            local aura = FindAura(helpById, def.ids)
-            if aura then
-                top[#top + 1] = { key = def.key, kind = "unwanted", label = aura.name, icon = aura.icon,
-                    spellId = aura.spellId, action = { type = "cancelaura", spell = aura.name } }
-            end
-        end
+    return {
+        tiles = tiles,
+        salvation = TAU:Get("checkUnwanted"),
+        dispelActions = TAU:Get("checkDebuffs") and DispelActions(class, Roster) or {},
+    }
+end
+
+function Scanner:Scan()
+    if not TAU.isEnabled or InCombatLockdown() then return end
+
+    -- Gratitude needs the (readable, out-of-combat) aura list
+    local helpful = {}
+    if not Utils.ForEachAura("player", "HELPFUL", function(aura) helpful[#helpful + 1] = aura end) then
+        return -- restricted right now; keep the current plan
     end
 
-    -- 6. Debuffs that you or your group can dispel
-    if TAU:Get("checkDebuffs") then
-        local ownDispels = D.PLAYER_DISPELS[class] or {}
-        for _, aura in ipairs(harmful) do
-            local dtype = Utils.SafeString(aura.dispelName, nil)
-            local classes = dtype and D.DISPEL_CLASSES[dtype]
-            if classes then
-                local action
-                for _, id in ipairs(ownDispels[dtype] or {}) do
-                    if Utils.IsKnown(id) then
-                        action = { type = "spell", spell = Utils.SpellName(id), unit = "player" }
-                        break
-                    end
-                end
-                if not action then
-                    for dispelClass in pairs(classes) do
-                        if Roster:CountOthers(dispelClass) > 0 then action = { type = "request" } break end
-                    end
-                end
-                if action then
-                    top[#top + 1] = { key = "DEBUFF", kind = "debuff", label = aura.name, icon = aura.icon,
-                        spellId = aura.spellId, dispelType = dtype, action = action }
-                end
-            end
-        end
-    end
-
-    -- 7. Smart visibility: solo, show buff reminders only when about to fight (hostile target + missing self buffs)
-    local hostileTarget = UnitExists("target") and UnitCanAttack("player", "target") and not UnitIsDead("target")
-    local showBuffs = not solo or (hostileTarget and #selfMissing > 0)
-    if showBuffs then
-        for i = #selfMissing, 1, -1 do table.insert(bottom, 1, selfMissing[i]) end
-    else
-        bottom = {}
-    end
-
-    self.state = { top = top, bottom = bottom }
+    self.plan = self:BuildPlan()
     TAU.Gratitude:Check(helpful)
-    TAU.Bar:Render(self.state)
+    TAU.Bar:Apply(self.plan)
 end
 
 -- Coalesce bursts of events into one scan
@@ -282,10 +206,8 @@ function Scanner:Dump()
     end
 end
 
-local function OnEvent(self, event, arg1)
-    if event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_ENTERING_WORLD" then
-        Scanner:Queue()
-    elseif not InCombatLockdown() then
+local function OnEvent()
+    if not InCombatLockdown() then
         Scanner:Queue()
     end
 end
@@ -300,7 +222,7 @@ function Scanner:OnEnable()
     end
     frame:SetScript("OnEvent", OnEvent)
     if ticker then ticker:Cancel() end
-    -- Periodic rescan so "expiring" thresholds are crossed without an event
+    -- Periodic replan (stance, bags, roster changes without events)
     ticker = C_Timer.NewTicker(3, function()
         if not InCombatLockdown() then Scanner:Scan() end
     end)
@@ -311,5 +233,5 @@ function Scanner:OnDisable()
     frame:UnregisterAllEvents()
     frame:SetScript("OnEvent", nil)
     if ticker then ticker:Cancel(); ticker = nil end
-    self.state = { top = {}, bottom = {} }
+    self.plan = { tiles = {} }
 end

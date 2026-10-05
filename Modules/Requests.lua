@@ -24,7 +24,8 @@ local LOCAL_HINTS = {
 
 function Requests:BuildMessage(entry)
     if entry.kind == "debuff" then
-        return string.format(L["MSG_NEED_DISPEL"], entry.label or "?", entry.dispelType or "?")
+        -- The debuff itself is secret in combat; the tile knows its dispel type
+        return string.format(L["MSG_NEED_DISPEL_TYPE"], L[entry.dispelType] or entry.dispelType or "?")
     end
     if entry.key == "HEALTHSTONE" then
         return L["MSG_NEED_HS"]
@@ -48,7 +49,7 @@ function Requests:Request(entry)
     end
 
     local now = GetTime()
-    local throttleKey = entry.key .. (entry.label or "")
+    local throttleKey = entry.key .. (entry.dispelType or entry.label or "")
     if lastSent[throttleKey] and (now - lastSent[throttleKey]) < REQUEST_THROTTLE then
         TAU:Print(L["MSG_WAIT_THROTTLE"])
         return

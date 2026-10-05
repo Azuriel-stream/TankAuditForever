@@ -18,9 +18,7 @@ TAU.DefaultConfig = {
     checkUnwanted = true,
     gratitude = true,          -- whisper the caster when a requested buff arrives
 
-    -- Combat Watch (in-combat self-buff timers)
-    combatWatch = true,
-    watchOnlyInCombat = false,
+    -- In-combat self-buff warning (sound + glow on the Battle Shout / Righteous Fury tile)
     watchSound = true,
     watchWarnSeconds = 15,
     watchDurations = {},       -- [spellID] = real duration learned out of combat

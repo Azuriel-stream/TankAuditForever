@@ -1,14 +1,14 @@
--- Shared setup for TankAuditForever wowsim tests (loaded by the *_test.lua files via dofile).
+-- Shared setup for TankAuditForever wowsim tests (require("helpers")).
 local H = {}
 
 H.SPELLS = {
     [6673] = "Battle Shout", [71] = "Defensive Stance", [25780] = "Righteous Fury",
     [1243] = "Power Word: Fortitude", [14752] = "Divine Spirit", [20217] = "Blessing of Kings",
     [19740] = "Blessing of Might", [19977] = "Blessing of Light", [19742] = "Blessing of Wisdom",
-    [465] = "Devotion Aura", [1038] = "Blessing of Salvation", [4987] = "Cleanse",
+    [465] = "Devotion Aura", [1038] = "Blessing of Salvation", [4987] = "Cleanse", [1126] = "Mark of the Wild",
 }
 
--- Party: player + priest (party1) + paladin (party2), target a hostile mob
+-- Party: player + priest (party1) + paladin (party2)
 function H.Party(sim)
     for id, name in pairs(H.SPELLS) do sim.spells[id] = name end
     sim.units.party2 = { name = "Aldric", surname = "Dawnward", class = "PALADIN", guid = "Player-1-00000003",
@@ -22,31 +22,37 @@ function H.Aura(spellId, name, opts)
     return a
 end
 
--- Rescan and let the coalescing timer fire
+-- Replan and let the coalescing timer fire
 function H.Rescan(sim)
     sim:Fire("UNIT_AURA", "player", { isFullUpdate = true })
     sim:Advance(1)
 end
 
 function H.Shown(sim)
-    local TAU = sim.env.TankAuditForever
     local out = {}
-    for _, b in ipairs(TAU.Bar:GetButtons()) do
-        if b:IsShown() and b.entry then out[#out + 1] = b end
+    for _, tile in ipairs(sim.env.TankAuditForever.Bar:GetTiles()) do
+        if tile:IsShown() and tile.item then out[#out + 1] = tile end
     end
     return out
 end
 
-function H.Find(sim, label)
-    for _, b in ipairs(H.Shown(sim)) do
-        if b.entry.label == label then return b end
+function H.Find(sim, tileKey)
+    for _, tile in ipairs(H.Shown(sim)) do
+        if tile.item.tileKey == tileKey then return tile end
     end
 end
 
-function H.Labels(sim)
+function H.Keys(sim)
     local out = {}
-    for _, b in ipairs(H.Shown(sim)) do out[#out + 1] = b.entry.label .. ":" .. b.entry.kind end
+    for _, tile in ipairs(H.Shown(sim)) do out[#out + 1] = tile.item.tileKey end
     return table.concat(out, ", ")
+end
+
+-- The Blizzard aura container created for a tile (or holder)
+function H.Container(sim, parent)
+    for _, f in ipairs(sim.frames) do
+        if f._type == "AuraContainer" and f._parent == parent then return f end
+    end
 end
 
 return H

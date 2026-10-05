@@ -113,7 +113,7 @@ local function CreateOptionsPanel()
     if optionsPanel then return optionsPanel end
 
     local f = CreateFrame("Frame", "TankAuditForeverOptionsPanel", UIParent, "ButtonFrameTemplate")
-    f:SetSize(540, 620)
+    f:SetSize(540, 590)
     f:SetPoint("CENTER")
     f:SetFrameStrata("HIGH")
     f:SetToplevel(true)
@@ -202,22 +202,14 @@ local function CreateOptionsPanel()
         widgets.blessings[i] = row
     end
 
-    -- 4. Combat Watch
+    -- 4. In-combat warning (sound + glow on the self-buff tile)
     CreateSectionHeader(content, L["UI_SECTION_WATCH"], -432)
     widgets.watch = {}
-    local watchChecks = {
-        { key = "combatWatch", text = "OPT_WATCH", x = 14, y = -460 },
-        { key = "watchOnlyInCombat", text = "OPT_WATCH_COMBAT", x = 268, y = -460 },
-        { key = "watchSound", text = "OPT_WATCH_SOUND", x = 14, y = -488 },
-    }
-    for _, def in ipairs(watchChecks) do
-        local cb = CreateCheckbox(content, L[def.text], L[def.text .. "_DESC"], function(checked)
-            TAU:Set(def.key, checked)
-            TAU.CombatWatch:UpdateVisibility()
-        end)
-        cb:SetPoint("TOPLEFT", def.x, def.y)
-        widgets.watch[def.key] = cb
-    end
+    local sound = CreateCheckbox(content, L["OPT_WATCH_SOUND"], L["OPT_WATCH_SOUND_DESC"], function(checked)
+        TAU:Set("watchSound", checked)
+    end)
+    sound:SetPoint("TOPLEFT", 14, -460)
+    widgets.watch.watchSound = sound
 
     -- 5. Bottom bar
     local scan = CreateButton(f, L["BTN_SCAN"], 100, function() TAU.Scanner:Scan() end)
@@ -280,14 +272,15 @@ function Options:PrintStatus()
     TAU:Print(L["STATUS_HEADER"])
     TAU:Print("Enabled: %s  Class: %s  Bar: %s", tostring(TAU.isEnabled), tostring(TAU.playerClass),
         TAU:Get("locked") and "locked" or "unlocked")
-    local state = TAU.Scanner.state
-    local function Names(list)
-        local out = {}
-        for _, e in ipairs(list) do out[#out + 1] = (e.label or e.key) .. "(" .. e.kind .. ")" end
-        return #out > 0 and table.concat(out, ", ") or "-"
-    end
-    TAU:Print("Top: %s", Names(state.top))
-    TAU:Print("Bottom: %s", Names(state.bottom))
+    local plan = TAU.Scanner.plan
+    local names = {}
+    for _, item in ipairs(plan.tiles or {}) do names[#names + 1] = item.label or item.key end
+    TAU:Print("Tiles: %s", #names > 0 and table.concat(names, ", ") or "-")
+    local types = {}
+    for dtype, action in pairs(plan.dispelActions or {}) do types[#types + 1] = dtype .. "(" .. action.type .. ")" end
+    table.sort(types)
+    TAU:Print("Salvation watch: %s  Debuff types: %s", tostring(plan.salvation == true),
+        #types > 0 and table.concat(types, "/") or "-")
 end
 
 -- =========================================================================

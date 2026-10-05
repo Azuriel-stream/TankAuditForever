@@ -15,7 +15,7 @@ inventory and feasibility analysis.
 | Weapon buff / Rockbiter | `GetWeaponEnchantInfo()` + tooltip scan | `C_Item.GetWeaponEnchantInfo(Enum.WeaponSlot.MainHand)` |
 | Healthstone | Bag scan for "Healthstone" in links | `C_Item.GetItemCount` over healthstone item IDs |
 | Click to cast / cancel | `CastSpellByName`, `CancelPlayerBuff` | `SecureActionButtonTemplate` (`type=spell` / `type=cancelaura`). Those functions are protected |
-| Combat | Rescans every 3 s | **Frozen**: auras are secret and secure buttons are locked in combat. **Combat Watch** keeps the key self buff's timer live via a Blizzard aura container + cast timing |
+| Combat | Rescans every 3 s | **Tiles**: which tiles show is planned out of combat and frozen in combat; each tile's buff state/timer is drawn live by a Blizzard `CustomAuraContainer` slot (works with secret auras). Self-buff warning timed from own casts |
 | Gratitude | Guess the caster from class counts; group chat | `AuraData.sourceUnit` → **whisper the real caster** |
 | Position | X/Y edit boxes | Drag while unlocked + reset |
 | Config | XML frame, `UIDropDownMenu`, Options templates | `ButtonFrameTemplate` panel, `WowStyle1DropdownTemplate`, `MinimalSliderWithSteppersTemplate` |
@@ -23,15 +23,20 @@ inventory and feasibility analysis.
 
 ## Modules and data flow
 ```
+ADDON_LOADED ──► Bar builds every possible tile for the class (Blizzard aura frames must exist before PLAYER_LOGIN)
+
 events / 3 s ticker (out of combat) ──► Scanner:Queue() ─0.2 s─► Scanner:Scan()
-   Roster:Update()  (class counts, my subgroup)
-   ReadAuras(HELPFUL/HARMFUL)  (aborts if data is secret)
-   self → group → blessings → consumables → healthstone → unwanted → debuffs → smart visibility
-   state = { top = {debuffs, unwanted}, bottom = {missing, expiring} }
-   Gratitude:Check(auras)   ── whispers the caster of a requested buff
-   Bar:Render(state)        ── in combat: stored as pending, applied on PLAYER_REGEN_ENABLED
-Bar button click ──► secure action (spell / cancelaura) ──► HookScript OnClick ──► Requests:OnClick
-                                                              (chat request / open bags)
+   ForEachAura(HELPFUL)        (aborts if data is secret; used for gratitude)
+   BuildPlan(): Roster → self → stance → group → blessings → consumables → healthstone
+                plan = { tiles = {ordered items + click actions}, salvation, dispelTypes }
+   Gratitude:Check(auras)      ── whispers the caster of a requested buff
+   Bar:Apply(plan)             ── show/arrange tiles; in combat stored as pending, applied on PLAYER_REGEN_ENABLED
+
+Blizzard aura slots (always, in combat too) ──► each tile lit + countdown when the buff is up, else our missing art
+Tile click (buff missing) ──► secure action (spell) ──► HookScript OnClick (up half) ──► Requests:OnClick
+                                                             (chat request / open bags)
+Salvation slot right-click ──► Blizzard CancelAuraByInstanceID
+UNIT_SPELLCAST_SUCCEEDED (own) ──► SelfAlert ──► sound + tile glow at ~15 s left (in combat)
 ```
 
 | File | Role |
@@ -42,11 +47,11 @@ Bar button click ──► secure action (spell / cancelaura) ──► HookScri
 | `Data/Buffs.lua` | all spell/item IDs (Wowhead Forever, 1.60.1) |
 | `Data/Messages.lua` | chat request texts and thank-you whispers |
 | `Modules/Roster.lua` | group class composition |
-| `Modules/Scanner.lua` | builds the audit state; `/taudit dump` |
+| `Modules/Scanner.lua` | out of combat: plans which tiles show (checklist), their order and click actions, Salvation/debuff-type settings; `/taudit dump` |
 | `Modules/Requests.lua` | chat requests (throttled), bags; remembers the pending request |
 | `Modules/Gratitude.lua` | thank-you whisper |
-| `Modules/Bar.lua` | 16 secure buttons, layout, countdowns, drag/lock, preview, combat freeze |
-| `Modules/CombatWatch.lua` | in-combat self-buff timer: Blizzard `CustomAuraContainer` slot (exact, display-only) over a "missing" placeholder, plus a cast-based estimate (`UNIT_SPELLCAST_SUCCEEDED`, own casts aren't secret) for the sound/glow warning. Built at `ADDON_LOADED` (aura buttons lock layout at `PLAYER_LOGIN`); visibility via alpha only |
+| `Modules/Bar.lua` | tiles: every possible tile built at `ADDON_LOADED` (our SecureActionButton + missing art + Blizzard aura slot / item-enchant frame + glow); top row = Salvation slot (right-click cancel) + dispellable-debuff aura group; `Apply(plan)` lays out out of combat only; drag/lock, preview |
+| `Modules/SelfAlert.lua` | Battle Shout / Righteous Fury: sound + tile glow ~15 s before expiry in combat, timed from own `UNIT_SPELLCAST_SUCCEEDED` with the duration learned out of combat |
 | `UI/Options.lua` | options window, `/taudit` commands |
 | `tests/` | headless wowsim tests (run `../tools/test.ps1 TankAuditForever`) |
 

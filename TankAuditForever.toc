@@ -24,7 +24,7 @@ Modules\Scanner.lua
 Modules\Requests.lua
 Modules\Gratitude.lua
 Modules\Bar.lua
-Modules\CombatWatch.lua
+Modules\SelfAlert.lua
 
 # Configuration Interface
 UI\Options.lua

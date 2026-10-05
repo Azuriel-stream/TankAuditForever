@@ -1,21 +1,31 @@
 local ADDON_NAME, TAU = ...
 
--- The audit bar: a pool of SecureActionButtons (casting and cancelling buffs are protected actions).
--- Forever/secure rules (kb/restrictions.md §4b): secure buttons can't be shown, hidden, moved or reconfigured in
--- combat, so the bar freezes in its pre-combat state and applies any pending update after combat. Already
--- configured cast/cancel buttons keep working when clicked in combat.
+-- The audit bar, as a checklist of TILES (kb/addons/TankAudit.md "Audit Bar v2"). A tile is:
+--   our SecureActionButton (click when the buff is missing: cast / ask the group / open bags)
+--   + our dimmed red "missing" art
+--   + a Blizzard aura slot on top (CustomAuraContainer) that draws the real icon, sweep and countdown (red near
+--     expiry) whenever the buff is up, live IN COMBAT, even though aura data is secret to addons.
+-- Top row: Blizzard Salvation slot (right-click cancels, in combat too) + dispellable-debuff group.
+-- Rules learned in-game: build every Blizzard aura frame before PLAYER_LOGIN (layout lock), size aura-group frames
+-- yourself, register both click halves on secure buttons. Secure tiles can't be shown/moved in combat, so the
+-- layout is decided out of combat (Scanner plan) and frozen during fights; each tile stays live.
 local Bar = TAU:RegisterModule("Bar")
 local Utils, L, D = TAU.Utils, TAU.L, TAU.Data
 
-local MAX_BUTTONS = 16
-local SIZE = 30
+local SIZE = 32
 local SPACING = 4
-local ROW_GAP = 18
+local ROW_GAP = 16
+local GROUP_WARN = 60
+local CONSUMABLE_WARN = 60
 
-local anchor, mover, timerFrame
-local buttons = {}
-local pendingState = nil      -- state to render once combat ends
-local pendingLayout = false   -- position/scale/visibility to apply once combat ends
+local anchor, mover
+local tiles = {}        -- creation order
+local tilesByKey = {}
+local salvationHolder
+local debuffTiles = {}  -- [dispelType] = holder (Blizzard slot + our click catcher)
+local built = false
+local pendingPlan = nil
+local pendingLayout = false
 local preview = false
 
 local function ApplyPosition()
@@ -32,160 +42,326 @@ local function SavePosition()
     end
 end
 
-local HINTS = {
-    spell = "HINT_CAST", cancelaura = "HINT_CANCEL", request = "HINT_REQUEST", bags = "HINT_BAGS",
-}
+-- Every tile this class could ever need (created once, at ADDON_LOADED)
+local function TileDefs(class)
+    local defs = {}
+    for _, s in ipairs(D.SELF[class] or {}) do
+        if s.stance then
+            defs[#defs + 1] = { tileKey = "SELF:" .. s.key, kind = "plain", icon = s.icon }
+        else
+            defs[#defs + 1] = { tileKey = "SELF:" .. s.key, kind = "aura", ids = s.ids, icon = s.icon,
+                warn = s.warn, alert = s.alert and s or nil }
+        end
+    end
+    for _, g in ipairs(D.GROUP) do
+        if not (g.skipFor and g.skipFor[class]) then
+            local ids = {}
+            for _, id in ipairs(g.ids) do ids[#ids + 1] = id end
+            for _, id in ipairs(g.greater or {}) do ids[#ids + 1] = id end
+            defs[#defs + 1] = { tileKey = "GROUP:" .. g.key, kind = "aura", ids = ids, icon = g.icon, warn = GROUP_WARN }
+        end
+    end
+    for _, key in ipairs(D.BLESSING_ORDER) do
+        local b = D.BLESSINGS[key]
+        local ids = {}
+        for _, id in ipairs(b.ids) do ids[#ids + 1] = id end
+        for _, id in ipairs(b.greater or {}) do ids[#ids + 1] = id end
+        defs[#defs + 1] = { tileKey = "BLESSING:" .. key, kind = "aura", ids = ids, icon = b.icon, warn = GROUP_WARN }
+    end
+    defs[#defs + 1] = { tileKey = "CONS:WELL_FED", kind = "aura", ids = D.WELL_FED, icon = D.ICONS.WELL_FED, warn = CONSUMABLE_WARN }
+    defs[#defs + 1] = { tileKey = "CONS:ELIXIR", kind = "aura", ids = D.ELIXIRS, icon = D.ICONS.ELIXIR, warn = CONSUMABLE_WARN }
+    defs[#defs + 1] = { tileKey = "CONS:FLASK", kind = "aura", ids = D.FLASKS, icon = D.ICONS.FLASK, warn = CONSUMABLE_WARN }
+    defs[#defs + 1] = { tileKey = "CONS:WEAPON_BUFF", kind = "enchant", icon = D.ICONS.WEAPON_BUFF, warn = CONSUMABLE_WARN }
+    defs[#defs + 1] = { tileKey = "HEALTHSTONE", kind = "plain", icon = D.ICONS.HEALTHSTONE }
+    return defs
+end
 
-local function ShowTooltip(button)
-    local entry = button.entry
-    if not entry then return end
-    GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-    if entry.spellId then
-        GameTooltip:SetSpellByID(entry.spellId)
+-- Blizzard aura button styling: icon, sweep, countdown whose color turns red under `warn` seconds
+local function StyleAuraFrame(frame, warn)
+    local icon = frame:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    frame:SetIcon(icon)
+
+    local cooldown = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+    cooldown:SetAllPoints()
+    cooldown:SetHideCountdownNumbers(true)
+    frame:SetDurationCooldown(cooldown)
+
+    local text = frame:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    text:SetPoint("BOTTOM", frame, "BOTTOM", 0, 1)
+    local curve = C_CurveUtil.CreateColorCurve()
+    if warn and warn > 0 then
+        curve:AddPoint(0, CreateColor(1, 0.15, 0.15, 1))
+        curve:AddPoint(warn, CreateColor(1, 0.15, 0.15, 1))
+        curve:AddPoint(warn + 0.5, CreateColor(1, 1, 1, 1))
     else
-        GameTooltip:SetText(entry.label or "?", 1, 1, 1)
+        curve:AddPoint(0, CreateColor(1, 1, 1, 1))
     end
-    if entry.kind == "expiring" and entry.expiresAt then
-        GameTooltip:AddLine(string.format(L["HINT_EXPIRES"], Utils.FormatTime(entry.expiresAt - GetTime())), 1, 0.82, 0)
-    elseif entry.kind == "missing" then
-        GameTooltip:AddLine(L["HINT_MISSING"], 1, 0.3, 0.3)
-    end
-    local actionType = entry.action and entry.action.type
-    local hint = HINTS[actionType]
-    if entry.kind == "debuff" then
-        hint = actionType == "spell" and "HINT_DISPEL_SELF" or "HINT_DISPEL_REQUEST"
-    end
+    curve:AddPoint(86400, CreateColor(1, 1, 1, 1))
+    frame:SetDurationText(text, {
+        textColor = { curve = curve, property = Enum.DurationTextBindingProperty.RemainingDuration },
+    })
+end
+
+local function NewContainer(parent)
+    local container = CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")
+    container:SetUnit("player")
+    return container
+end
+
+local HINTS = { spell = "HINT_CAST", request = "HINT_REQUEST", bags = "HINT_BAGS" }
+
+-- Our tooltip (only reachable while the buff is missing; Blizzard's button covers the tile otherwise)
+local function ShowTooltip(tile)
+    local item = tile.item
+    if not item then return end
+    GameTooltip:SetOwner(tile, "ANCHOR_RIGHT")
+    GameTooltip:SetText(item.label or "?", 1, 1, 1)
+    GameTooltip:AddLine(L["HINT_MISSING"], 1, 0.3, 0.3)
+    local hint = item.action and HINTS[item.action.type]
     if hint then GameTooltip:AddLine(L[hint], 0.6, 0.8, 1) end
     GameTooltip:Show()
 end
 
-local function CreateBarButton(index)
-    local b = CreateFrame("Button", "TankAuditForeverButton" .. index, anchor, "SecureActionButtonTemplate")
-    b:SetSize(SIZE, SIZE)
-    -- Forever: for addon-owned secure buttons a mouse click follows the ActionButtonUseKeyDown CVar (default on =
-    -- act on DOWN). Register both like Blizzard's action bars; the template acts on the right one.
-    -- [in-game] 2026-10-05: registering only "LeftButtonUp" never cast (kb/gotchas.md#secure-clicks).
-    b:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
+local function CreateTile(def, index)
+    local tile = CreateFrame("Button", "TankAuditForeverTile" .. index, anchor, "SecureActionButtonTemplate")
+    tile:SetSize(SIZE, SIZE)
+    -- Addon secure buttons act on mouse DOWN by default: register both halves (kb/gotchas.md#secure-clicks)
+    tile:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
+    tile.def = def
 
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetAllPoints()
-    b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    tile.art = tile:CreateTexture(nil, "BACKGROUND")
+    tile.art:SetAllPoints()
+    tile.art:SetTexture(def.icon or D.ICONS.UNKNOWN)
+    tile.art:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    tile.art:SetDesaturated(true)
+    tile.art:SetVertexColor(1, 0.35, 0.35)
+    tile:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 
-    b.timer = b:CreateFontString(nil, "OVERLAY")
-    b.timer:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
-    b.timer:SetPoint("CENTER", b, "CENTER", 0, 0)
-
-    b.tag = b:CreateFontString(nil, "OVERLAY")
-    b.tag:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-    b.tag:SetPoint("BOTTOM", b, "TOP", 0, 1)
-
-    b:SetScript("OnEnter", ShowTooltip)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    -- Runs after the secure action (if any); still a hardware event, so chat requests are allowed
-    b:HookScript("OnClick", function(self, _, down)
-        if down then return end -- the hook sees both halves of the click; act once
-        TAU.Requests:OnClick(self.entry)
+    tile:SetScript("OnEnter", ShowTooltip)
+    tile:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    tile:HookScript("OnClick", function(self, _, down)
+        if down then return end -- the hook sees both click halves; act once
+        TAU.Requests:OnClick(self.item)
     end)
-    b:Hide()
-    return b
-end
 
-local function SetupButton(b, entry)
-    b.entry = entry
-    b.icon:SetTexture(entry.icon or D.ICONS.UNKNOWN)
-    b.icon:SetDesaturated(entry.kind == "missing")
-    b.timer:SetText("")
-    if entry.kind == "unwanted" then
-        b.tag:SetText("|cffFF2222CANCEL|r")
-    elseif entry.kind == "debuff" then
-        b.tag:SetText("|cffFF2222DISPEL|r")
-    else
-        b.tag:SetText("")
-    end
-
-    local action = entry.action or {}
-    if action.type == "spell" or action.type == "cancelaura" then
-        b:SetAttribute("type", action.type)
-        b:SetAttribute("spell", action.spell)
-        b:SetAttribute("unit", action.unit)
-    else
-        b:SetAttribute("type", nil)
-        b:SetAttribute("spell", nil)
-        b:SetAttribute("unit", nil)
-    end
-end
-
-local function PreviewState()
-    local now = GetTime()
-    return {
-        top = {
-            { key = "PREVIEW", kind = "debuff", label = L["PREVIEW"], icon = "Interface\\Icons\\Spell_Shadow_CurseOfTounges" },
-        },
-        bottom = {
-            { key = "PREVIEW", kind = "missing", label = L["PREVIEW"], icon = "Interface\\Icons\\Spell_Holy_WordFortitude" },
-            { key = "PREVIEW", kind = "missing", label = L["PREVIEW"], icon = "Interface\\Icons\\Spell_Magic_MageArmor" },
-            { key = "PREVIEW", kind = "expiring", label = L["PREVIEW"], icon = D.ICONS.WELL_FED, expiresAt = now + 45 },
-        },
-    }
-end
-
-function Bar:UpdateTimers()
-    local now = GetTime()
-    for _, b in ipairs(buttons) do
-        local entry = b.entry
-        if entry and entry.expiresAt and b:IsShown() then
-            local left = entry.expiresAt - now
-            if left <= 0 then
-                b.timer:SetText("|cffFF00000|r")
-                b.icon:SetDesaturated(true)
-            elseif left < 10 then
-                b.timer:SetText("|cffFF2222" .. Utils.FormatTime(left) .. "|r")
-            else
-                b.timer:SetText("|cffFFFF00" .. Utils.FormatTime(left) .. "|r")
-            end
+    -- Blizzard live display on top (a failure degrades the tile to a plain out-of-combat prompt)
+    local ok, err = pcall(function()
+        if def.kind == "aura" then
+            local container = NewContainer(tile)
+            container:SetAllPoints(tile)
+            local slot = container:AddAuraSlot("tile", "HELPFUL",
+                { candidateFilters = { includeSpellIDs = Utils.ToSet(def.ids) } })
+            slot:SetAllPoints(tile)
+            StyleAuraFrame(slot, def.warn)
+        elseif def.kind == "enchant" then
+            local container = NewContainer(tile)
+            container:SetPoint("TOPLEFT", tile, "TOPLEFT")
+            container:SetSize(SIZE, SIZE)
+            local mainHand = AuraContainerItemEnchantmentSlot and AuraContainerItemEnchantmentSlot.MainHand or 0
+            local frame = container:AddItemEnchantment(mainHand, {
+                initializeFrame = function(f) f:SetSize(SIZE, SIZE) end,
+            })
+            if frame then StyleAuraFrame(frame, def.warn) end
         end
+    end)
+    if not ok then
+        TAU:Print("|cffFF4444Live display unavailable for %s:|r %s", def.tileKey, tostring(err))
+    end
+
+    -- Alert glow (SelfAlert), our own frame layered above Blizzard's
+    local glowFrame = CreateFrame("Frame", nil, tile)
+    glowFrame:SetAllPoints()
+    glowFrame:SetFrameLevel(tile:GetFrameLevel() + 10)
+    tile.glow = glowFrame:CreateTexture(nil, "OVERLAY")
+    tile.glow:SetPoint("TOPLEFT", -6, 6)
+    tile.glow:SetPoint("BOTTOMRIGHT", 6, -6)
+    tile.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    tile.glow:SetBlendMode("ADD")
+    tile.glow:SetVertexColor(1, 0.1, 0.1)
+    tile.glow:Hide()
+
+    tile:Hide()
+    return tile
+end
+
+-- Top row: Salvation slot (Blizzard right-click cancel) + dispellable debuffs group
+local function CreateTopRow()
+    local y = SIZE + ROW_GAP
+    salvationHolder = CreateFrame("Frame", "TAU_SalvationHolder", anchor)
+    salvationHolder:SetSize(SIZE, SIZE)
+    salvationHolder:SetPoint("CENTER", anchor, "CENTER", -(SIZE / 2 + SPACING), y)
+    local ok, err = pcall(function()
+        local container = NewContainer(salvationHolder)
+        container:SetAllPoints(salvationHolder)
+        local ids = {}
+        for _, def in ipairs(D.UNWANTED) do
+            for _, id in ipairs(def.ids) do ids[id] = true end
+        end
+        local slot = container:AddAuraSlot("unwanted", "HELPFUL", { candidateFilters = { includeSpellIDs = ids } })
+        slot:SetAllPoints(salvationHolder)
+        slot:SetCancelAuraButtons("RightButtonUp")
+        StyleAuraFrame(slot, 0)
+        local tag = slot:CreateFontString(nil, "OVERLAY")
+        tag:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+        tag:SetPoint("BOTTOM", slot, "TOP", 0, 1)
+        tag:SetText("|cffFF2222" .. L["TAG_CANCEL"] .. "|r")
+    end)
+    if not ok then TAU:Print("|cffFF4444Salvation display unavailable:|r %s", tostring(err)) end
+
+    -- One tile per dispel type: Blizzard slot (that type's debuff, live in combat) UNDER our transparent secure
+    -- button. Blizzard aura buttons swallow clicks, so ours sits on top: click = own dispel or ask the group.
+    -- Mouse motion is passed through so Blizzard's debuff tooltip still works.
+    for _, dtype in ipairs(D.DISPEL_ORDER) do
+        local holder = CreateFrame("Frame", "TAU_Debuff" .. dtype, anchor)
+        holder:SetSize(SIZE, SIZE)
+        local bg = holder:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0, 0, 0, 0.25) -- marks the clickable area while empty
+        local dok, derr = pcall(function()
+            local container = NewContainer(holder)
+            container:SetAllPoints(holder)
+            local slot = container:AddAuraSlot("debuff", "HARMFUL",
+                { candidateFilters = { includeDispelTypes = { [dtype] = true } } })
+            slot:SetAllPoints(holder)
+            StyleAuraFrame(slot, 0)
+        end)
+        if not dok then TAU:Print("|cffFF4444Debuff display unavailable:|r %s", tostring(derr)) end
+
+        local catcher = CreateFrame("Button", "TAU_DebuffClick" .. dtype, holder, "SecureActionButtonTemplate")
+        catcher:SetAllPoints(holder)
+        catcher:SetFrameLevel(holder:GetFrameLevel() + 20)
+        catcher:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
+        catcher.dispelType = dtype
+        if not pcall(catcher.SetPropagateMouseMotion, catcher, true) then
+            -- Fallback: our own tooltip if motion can't pass through to Blizzard's button
+            catcher:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(L[dtype], 1, 1, 1)
+                GameTooltip:AddLine(self.item and self.item.action.type == "spell" and L["HINT_DISPEL_SELF"]
+                    or L["HINT_DISPEL_REQUEST"], 0.6, 0.8, 1)
+                GameTooltip:Show()
+            end)
+            catcher:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+        catcher:HookScript("OnClick", function(self, _, down)
+            if down then return end
+            TAU.Requests:OnClick(self.item)
+        end)
+        holder.catcher = catcher
+        holder:Hide()
+        debuffTiles[dtype] = holder
     end
 end
 
-function Bar:Render(state)
-    if not anchor then return end
+local function CreateMover()
+    mover = CreateFrame("Frame", nil, anchor)
+    mover:SetPoint("TOPLEFT", anchor, "TOPLEFT", -6, 6)
+    mover:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", 6, -6)
+    mover:SetFrameLevel(anchor:GetFrameLevel() + 30)
+    mover:EnableMouse(true)
+    mover:RegisterForDrag("LeftButton")
+    local bg = mover:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0, 1, 0.5, 0.25)
+    local text = mover:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    text:SetPoint("CENTER")
+    text:SetText(L["BAR_DRAG_HINT"])
+    mover:SetScript("OnDragStart", function()
+        if not InCombatLockdown() then anchor:StartMoving() end
+    end)
+    mover:SetScript("OnDragStop", function()
+        anchor:StopMovingOrSizing()
+        SavePosition()
+    end)
+    mover:SetShown(not TAU:Get("locked"))
+end
+
+local function SetupTile(tile, item)
+    tile.item = item
+    local action = item.action or {}
+    if action.type == "spell" then
+        tile:SetAttribute("type", "spell")
+        tile:SetAttribute("spell", action.spell)
+        tile:SetAttribute("unit", action.unit)
+    else
+        tile:SetAttribute("type", nil)
+        tile:SetAttribute("spell", nil)
+        tile:SetAttribute("unit", nil)
+    end
+end
+
+local function PreviewPlan()
+    local items = {}
+    for _, tile in ipairs(tiles) do
+        items[#items + 1] = { tileKey = tile.def.tileKey, key = tile.def.tileKey, label = L["PREVIEW"] }
+    end
+    local dispelActions = {}
+    for _, dtype in ipairs(D.DISPEL_ORDER) do dispelActions[dtype] = { type = "request" } end
+    return { tiles = items, salvation = true, dispelActions = dispelActions }
+end
+
+-- Show and arrange tiles for a plan (out of combat only; in combat the plan waits)
+function Bar:Apply(plan)
+    if not built then return end
     if InCombatLockdown() then
-        pendingState = state
+        pendingPlan = plan
         return
     end
-    pendingState = nil
-    if preview then state = PreviewState() end
-    state = state or { top = {}, bottom = {} }
+    pendingPlan = nil
+    self.plan = plan
+    if preview then plan = PreviewPlan() end
+    plan = plan or { tiles = {} }
 
-    local used = 0
-    local function Row(list, y)
-        local n = math.min(#list, MAX_BUTTONS - used)
-        local x = -((n * SIZE) + ((n - 1) * SPACING)) / 2 + SIZE / 2
-        for i = 1, n do
-            used = used + 1
-            local b = buttons[used]
-            SetupButton(b, list[i])
-            b:ClearAllPoints()
-            b:SetPoint("CENTER", anchor, "CENTER", x, y)
-            b:Show()
-            x = x + SIZE + SPACING
+    local visible = {}
+    for _, item in ipairs(plan.tiles) do
+        local tile = tilesByKey[item.tileKey]
+        if tile then visible[#visible + 1] = { tile = tile, item = item } end
+    end
+
+    local shown = {}
+    local x = -((#visible * SIZE) + ((#visible - 1) * SPACING)) / 2 + SIZE / 2
+    for _, v in ipairs(visible) do
+        SetupTile(v.tile, v.item)
+        v.tile:ClearAllPoints()
+        v.tile:SetPoint("CENTER", anchor, "CENTER", x, 0)
+        v.tile:Show()
+        shown[v.tile] = true
+        x = x + SIZE + SPACING
+    end
+    for _, tile in ipairs(tiles) do
+        if not shown[tile] then
+            tile.item = nil
+            if tile:IsShown() then tile:Hide() end
         end
     end
-    Row(state.top, SIZE + ROW_GAP)
-    Row(state.bottom, 0)
 
-    for i = used + 1, MAX_BUTTONS do
-        local b = buttons[i]
-        b.entry = nil
-        if b:IsShown() then b:Hide() end
+    -- Top row: Salvation left of center, debuff tiles (types someone can remove) to the right
+    salvationHolder:SetShown(plan.salvation and true or false)
+    local dx = SPACING / 2 + SIZE / 2
+    for _, dtype in ipairs(D.DISPEL_ORDER) do
+        local holder = debuffTiles[dtype]
+        local action = plan.dispelActions and plan.dispelActions[dtype]
+        if action then
+            local catcher = holder.catcher
+            catcher.item = { key = "DEBUFF", kind = "debuff", dispelType = dtype, label = L[dtype], action = action }
+            catcher:SetAttribute("type", action.type == "spell" and "spell" or nil)
+            catcher:SetAttribute("spell", action.spell)
+            catcher:SetAttribute("unit", action.unit)
+            holder:ClearAllPoints()
+            holder:SetPoint("CENTER", anchor, "CENTER", dx, SIZE + ROW_GAP)
+            holder:Show()
+            dx = dx + SIZE + SPACING
+        elseif holder:IsShown() then
+            holder:Hide()
+        end
     end
-    self:UpdateTimers()
 end
 
 function Bar:SetPreview(enabled)
     preview = enabled and true or false
-    self:Render(TAU.Scanner.state)
+    self:Apply(self.plan or TAU.Scanner.plan)
 end
 
 function Bar:SetLocked(locked)
@@ -209,91 +385,66 @@ end
 function Bar:SetScale(scale)
     TAU:Set("scale", scale)
     if InCombatLockdown() then pendingLayout = true return end
-    anchor:SetScale(scale)
+    if anchor then anchor:SetScale(scale) end
 end
 
-local function CreateBar()
+local eventFrame = CreateFrame("Frame", "TAU_BarEventFrame")
+eventFrame:SetScript("OnEvent", function()
+    if pendingLayout then
+        pendingLayout = false
+        ApplyPosition()
+        anchor:SetShown(TAU.isEnabled)
+    end
+    if pendingPlan then Bar:Apply(pendingPlan) end
+end)
+
+-- Built at ADDON_LOADED: Blizzard aura frames accept layout calls only until PLAYER_LOGIN.
+function Bar:OnInitialize()
+    local _, class = UnitClass("player")
+    if not class or not TAU.SUPPORTED_CLASSES[class] then return end
+    if InCombatLockdown() then
+        TAU:Print(L["RELOADED_IN_COMBAT"])
+        return
+    end
+    if not C_AddOns.IsAddOnLoaded("Blizzard_AuraContainer") then
+        pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
+    end
+
     anchor = CreateFrame("Frame", "TankAuditForeverBar", UIParent)
-    anchor:SetSize(MAX_BUTTONS * (SIZE + SPACING) / 2, (SIZE * 2) + ROW_GAP)
+    anchor:SetSize(10 * (SIZE + SPACING), SIZE * 2 + ROW_GAP)
     anchor:SetMovable(true)
     anchor:SetClampedToScreen(true)
     ApplyPosition()
 
-    -- Drag handle, shown only while unlocked (sits above the buttons)
-    mover = CreateFrame("Frame", nil, anchor)
-    mover:SetPoint("TOPLEFT", anchor, "TOPLEFT", -6, 6)
-    mover:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", 6, -6)
-    mover:SetFrameLevel(anchor:GetFrameLevel() + 20)
-    mover:EnableMouse(true)
-    mover:RegisterForDrag("LeftButton")
-    local bg = mover:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0, 1, 0.5, 0.25)
-    local text = mover:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    text:SetPoint("CENTER")
-    text:SetText(L["BAR_DRAG_HINT"])
-    mover:SetScript("OnDragStart", function()
-        if not InCombatLockdown() then anchor:StartMoving() end
-    end)
-    mover:SetScript("OnDragStop", function()
-        anchor:StopMovingOrSizing()
-        SavePosition()
-    end)
-    mover:SetShown(not TAU:Get("locked"))
+    for i, def in ipairs(TileDefs(class)) do
+        local tile = CreateTile(def, i)
+        tiles[#tiles + 1] = tile
+        tilesByKey[def.tileKey] = tile
+    end
+    CreateTopRow()
+    CreateMover()
     preview = not TAU:Get("locked")
-
-    for i = 1, MAX_BUTTONS do
-        buttons[i] = CreateBarButton(i)
-    end
-
-    -- Countdown text updates are allowed in combat (only the protected frames themselves are locked)
-    timerFrame = CreateFrame("Frame", "TAU_BarTimerFrame")
-    local elapsedTotal = 0
-    timerFrame:SetScript("OnUpdate", function(_, elapsed)
-        elapsedTotal = elapsedTotal + elapsed
-        if elapsedTotal >= 0.2 then
-            elapsedTotal = 0
-            Bar:UpdateTimers()
-        end
-    end)
-end
-
-local eventFrame = CreateFrame("Frame", "TAU_BarEventFrame")
-eventFrame:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_REGEN_ENABLED" then
-        if not anchor then
-            CreateBar()
-            Bar:Render(TAU.Scanner.state)
-        end
-        if pendingLayout then
-            pendingLayout = false
-            ApplyPosition()
-            anchor:SetShown(TAU.isEnabled)
-        end
-        if pendingState then Bar:Render(pendingState) end
-    end
-end)
-
-function Bar:OnLogin()
+    built = true
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    -- /reload in combat: secure frames must wait for combat to end
-    if not InCombatLockdown() then CreateBar() end
 end
 
 function Bar:OnEnable()
-    if not anchor then return end
+    if not built then return end
     if InCombatLockdown() then pendingLayout = true return end
     anchor:Show()
 end
 
 function Bar:OnDisable()
-    if not anchor then return end
+    if not built then return end
     if InCombatLockdown() then pendingLayout = true return end
     preview = false
-    self:Render({ top = {}, bottom = {} })
+    self:Apply({ tiles = {} })
     anchor:Hide()
 end
 
--- For tests and /taudit status
-function Bar:GetButtons() return buttons end
+-- For SelfAlert, tests and /taudit status
+function Bar:GetTile(tileKey) return tilesByKey[tileKey] end
+function Bar:GetTiles() return tiles end
 function Bar:GetAnchor() return anchor end
+function Bar:GetDebuffTile(dispelType) return debuffTiles[dispelType] end
+function Bar:GetSalvationHolder() return salvationHolder end

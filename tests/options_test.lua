@@ -9,10 +9,14 @@ return function(sim, t)
     t.ok(panel and panel:IsShown(), "/taudit opens the options panel")
     local w = panel.widgets
 
-    -- Preview icons while the panel is open
-    local shown = 0
-    for _, b in ipairs(TAU.Bar:GetButtons()) do if b:IsShown() then shown = shown + 1 end end
-    t.ok(shown > 0, "bar shows a preview while options are open")
+    -- Preview: every tile is shown while the panel is open
+    local shown, total = 0, #TAU.Bar:GetTiles()
+    for _, tile in ipairs(TAU.Bar:GetTiles()) do if tile:IsShown() then shown = shown + 1 end end
+    t.ok(total > 0 and shown == total, "all tiles previewed while options are open")
+
+    -- Sound warning checkbox
+    w.watch.watchSound:Click()
+    t.eq(db.watchSound, false, "sound warning toggles")
 
     -- Checkboxes write settings
     w.checks.checkHealthstone:Click()

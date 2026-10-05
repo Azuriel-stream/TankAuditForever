@@ -62,7 +62,10 @@ end
 local function CreateBarButton(index)
     local b = CreateFrame("Button", "TankAuditForeverButton" .. index, anchor, "SecureActionButtonTemplate")
     b:SetSize(SIZE, SIZE)
-    b:RegisterForClicks("LeftButtonUp") -- mouse clicks on secure buttons act on mouse-up
+    -- Forever: for addon-owned secure buttons a mouse click follows the ActionButtonUseKeyDown CVar (default on =
+    -- act on DOWN). Register both like Blizzard's action bars; the template acts on the right one.
+    -- [in-game] 2026-10-05: registering only "LeftButtonUp" never cast (kb/gotchas.md#secure-clicks).
+    b:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
 
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetAllPoints()
@@ -80,7 +83,8 @@ local function CreateBarButton(index)
     b:SetScript("OnEnter", ShowTooltip)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- Runs after the secure action (if any); still a hardware event, so chat requests are allowed
-    b:HookScript("OnClick", function(self)
+    b:HookScript("OnClick", function(self, _, down)
+        if down then return end -- the hook sees both halves of the click; act once
         TAU.Requests:OnClick(self.entry)
     end)
     b:Hide()

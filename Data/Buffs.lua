@@ -30,7 +30,7 @@ D.SELF = {
 D.GROUP = {
     { key = "FORTITUDE", provider = "PRIEST", icon = "Interface\\Icons\\Spell_Holy_WordFortitude",
       ids = { 1243, 1244, 1245, 2791, 10937, 10938 }, greater = { 21562, 21564 } },
-    { key = "SPIRIT", provider = "PRIEST", icon = "Interface\\Icons\\Spell_Holy_DivineSpirit",
+    { key = "SPIRIT", provider = "PRIEST", icon = "Interface\\Icons\\Spell_Holy_DivineSpirit", skipFor = { WARRIOR = true }, -- mana regen only
       ids = { 14752, 14818, 14819, 27841 }, greater = { 27681 } },
     { key = "MARK_OF_THE_WILD", provider = "DRUID", icon = "Interface\\Icons\\Spell_Nature_Regeneration",
       ids = { 1126, 5232, 6756, 5234, 8907, 9884, 9885, 1291335, 1310503 }, greater = { 21849, 21850 } },

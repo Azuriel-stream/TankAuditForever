@@ -15,7 +15,7 @@ Bottom row: a tile appears for each expected buff that is missing or expiring:
 |---|---|---|
 | **Self buff**: Battle Shout (warrior), Righteous Fury (paladin) | once learned (solo too) | casts it |
 | **Defensive Stance** | in a group, when you're not in it | switches stance |
-| **Group buffs**: Fortitude, Divine Spirit, Mark of the Wild, Thorns, Arcane Intellect (not for warriors), Battle Shout (warrior in your subgroup), a Paladin Aura | the class that provides it is in your group | casts it if you can, otherwise asks your group in chat |
+| **Group buffs**: Fortitude, Divine Spirit (not for warriors), Mark of the Wild, Thorns, Arcane Intellect (not for warriors), Battle Shout (warrior in your subgroup), a Paladin Aura | the class that provides it is in your group | casts it if you can, otherwise asks your group in chat |
 | **Blessings**, by your priority list | one per paladin in the group | casts it if you can, otherwise asks |
 | **Food, Elixir or Flask, weapon buff** | in groups (elixir/flask by mode) | opens your bags |
 | **Healthstone** | a warlock is in the group and you carry none | asks for one |

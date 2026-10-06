@@ -16,11 +16,11 @@ return function(sim, t)
     -- Checklist contents and order (self buffs first)
     local keys = H.Keys(w)
     t.eq(H.Shown(w)[1].item.tileKey, "SELF:BATTLE_SHOUT", "self buff first: " .. keys)
-    for _, key in ipairs({ "SELF:DEFENSIVE_STANCE", "GROUP:FORTITUDE", "GROUP:SPIRIT", "GROUP:PALADIN_AURA",
+    for _, key in ipairs({ "SELF:DEFENSIVE_STANCE", "GROUP:FORTITUDE", "GROUP:PALADIN_AURA",
                            "BLESSING:KINGS", "CONS:WELL_FED", "CONS:WEAPON_BUFF" }) do
         t.ok(H.Find(w, key), key .. " expected in: " .. keys)
     end
-    for _, key in ipairs({ "GROUP:ARCANE_INTELLECT", "GROUP:BATTLE_SHOUT", "BLESSING:MIGHT", "HEALTHSTONE", "CONS:FLASK" }) do
+    for _, key in ipairs({ "GROUP:ARCANE_INTELLECT", "GROUP:SPIRIT", "GROUP:BATTLE_SHOUT", "BLESSING:MIGHT", "HEALTHSTONE", "CONS:FLASK" }) do
         t.ok(not H.Find(w, key), key .. " not expected in: " .. keys)
     end
 

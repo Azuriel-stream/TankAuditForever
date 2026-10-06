@@ -24,6 +24,7 @@ return function(sim, t)
     local wisdom = H.Find(p, "BLESSING:WISDOM")
     t.ok(wisdom and wisdom:GetAttribute("type") == nil, "Wisdom (not known) is requested")
     t.ok(not H.Find(p, "GROUP:BATTLE_SHOUT"), "no warrior in group -> no Battle Shout")
+    t.ok(H.Find(p, "GROUP:SPIRIT"), "paladin (mana) still checks Divine Spirit")
     t.ok(not H.Find(p, "SELF:BATTLE_SHOUT"), "paladin has no Battle Shout self tile")
 
     -- Salvation slot: Blizzard right-click cancel, filtered to Salvation (+ Greater)

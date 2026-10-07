@@ -3,6 +3,7 @@
 ## Notes: Pre-pull audit for tanks: missing/expiring buffs, consumables, dispellable debuffs and unwanted buffs.
 ## Author: Azuriel
 ## Version: 2.0.0
+## IconTexture: Interface\AddOns\TankAuditForever\Media\icon.tga
 ## SavedVariables: TankAuditForeverDB
 
 # Locales

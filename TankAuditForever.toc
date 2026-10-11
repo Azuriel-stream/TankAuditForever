@@ -4,6 +4,7 @@
 ## Author: Azuriel
 ## Version: 2.0.0
 ## IconTexture: Interface\AddOns\TankAuditForever\Media\icon.tga
+## Category: Tanking
 ## SavedVariables: TankAuditForeverDB
 
 # Locales

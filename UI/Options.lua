@@ -127,6 +127,9 @@ local function CreateOptionsPanel()
 
     f:SetTitle(L["ADDON_TITLE"] .. " |cff888888v" .. TAU.version .. "|r")
     f:SetPortraitToClassIcon(TAU.playerClass or "WARRIOR")
+    -- The template's X calls HideUIPanel, which refuses in combat for addon code (InCombatLockdown and not
+    -- issecure); a plain Hide is fine for this non-secure frame.
+    f.CloseButton:SetScript("OnClick", function() f:Hide() end)
 
     local widgets = {}
     f.widgets = widgets

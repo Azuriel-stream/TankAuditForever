@@ -72,6 +72,9 @@ return function(sim, t)
     fort:Click()
     local req = t.contains(w.chat, "Fortitude", "request sent")
     t.eq(req.channel, "PARTY", "request goes to party")
+    -- Ranked spell links corrupt the rest of a sent chat message on Forever: names go out as plain text.
+    t.ok(not req.msg:find("|H", 1, true), "request contains no spell link")
+    t.ok(req.msg:find("[Power Word: Fortitude]", 1, true), "request names the spell as plain [Name]")
     t.eq(#w.chat, 1, "one click sends one message (hook acts on the up half only)")
     fort:Click()
     t.eq(#w.chat, 1, "requests are throttled")
@@ -81,6 +84,8 @@ return function(sim, t)
     local thanks = w.chat[#w.chat]
     t.eq(thanks.channel, "WHISPER", "gratitude is a whisper")
     t.eq(thanks.target, "Lumen Brightwater", "whispers the caster by full Forever name")
+    t.ok(not thanks.msg:find("|H", 1, true), "gratitude contains no spell link")
+    t.ok(thanks.msg:find("[Power Word: Fortitude]", 1, true), "gratitude names the spell as plain [Name]")
 
     -- Top row: Salvation watch + one debuff tile per type the group can remove (priest: Magic/Disease, paladin: +Poison)
     local Bar = w.env.TankAuditForever.Bar

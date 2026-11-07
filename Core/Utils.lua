@@ -72,10 +72,13 @@ function Utils.SpellIcon(id)
     return id and C_Spell.GetSpellTexture(id) or nil
 end
 
-function Utils.SpellLink(id, fallbackName)
-    local link = id and C_Spell.GetSpellLink(id)
-    if link and not Utils.IsSecret(link) then return link end
-    return "[" .. (fallbackName or "?") .. "]"
+-- Spell name as plain "[Name]" text for chat messages. Deliberately NOT a spell link: on Forever a ranked link
+-- ("[Revenge (Rank 1)]") corrupts the text after it in a sent message, for every reader [in-game].
+-- See kb/gotchas.md#spell-link-chat in the workspace repo.
+function Utils.SpellChatName(id, fallbackName)
+    local name = id and C_Spell.GetSpellName(id)
+    if not name or Utils.IsSecret(name) or name == "" then name = fallbackName or "?" end
+    return "[" .. name .. "]"
 end
 
 function Utils.FormatTime(seconds)

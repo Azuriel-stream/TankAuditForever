@@ -1,6 +1,6 @@
 local ADDON_NAME, TAU = ...
 
--- Group chat requests (one picked at random). %s = spell link.
+-- Group chat requests (one picked at random). %s = spell name as plain "[Name]" (never a link).
 TAU.Data.REQUESTS = {
     FORTITUDE = {
         "Priest, could you bolster my health with %s?",
@@ -64,7 +64,7 @@ TAU.Data.REQUESTS = {
     },
 }
 
--- Whispered to the caster. %s = spell link, %s = caster's first name.
+-- Whispered to the caster. %s = spell name as plain "[Name]" (never a link), %s = caster's first name.
 TAU.Data.THANKS = {
     "Thanks for the %s, %s!",
     "Got the %s - thank you, %s!",

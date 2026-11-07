@@ -30,8 +30,8 @@ function Requests:BuildMessage(entry)
     if entry.key == "HEALTHSTONE" then
         return L["MSG_NEED_HS"]
     end
-    local link = Utils.SpellLink(entry.spellId, entry.label)
-    local msg = string.format(Pick(D.REQUESTS[entry.messageKey] or D.REQUESTS.DEFAULT), link)
+    local spellText = Utils.SpellChatName(entry.spellId, entry.label)
+    local msg = string.format(Pick(D.REQUESTS[entry.messageKey] or D.REQUESTS.DEFAULT), spellText)
     if entry.expiresAt and entry.expiresAt > 0 then -- clicked while expiring: say when it fades
         local left = entry.expiresAt - GetTime()
         if left > 0 then
@@ -59,7 +59,7 @@ function Requests:Request(entry)
     C_ChatInfo.SendChatMessage(self:BuildMessage(entry), channel)
 
     if entry.watchIds then
-        Requests.pending = { ids = entry.watchIds, time = now, link = Utils.SpellLink(entry.spellId, entry.label) }
+        Requests.pending = { ids = entry.watchIds, time = now, spellText = Utils.SpellChatName(entry.spellId, entry.label) }
     end
 end
 

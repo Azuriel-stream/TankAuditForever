@@ -28,7 +28,7 @@ function Gratitude:Check(helpfulAuras)
             local firstName = Utils.SafeString((UnitName(source)), nil)
             if target and firstName then
                 local text = D.THANKS[math.random(1, #D.THANKS)]
-                C_ChatInfo.SendChatMessage(string.format(text, pending.link, firstName), "WHISPER", nil, target)
+                C_ChatInfo.SendChatMessage(string.format(text, pending.spellText, firstName), "WHISPER", nil, target)
             end
             return
         end

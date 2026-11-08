@@ -1,5 +1,10 @@
 # TankAudit Forever
 
+> **This addon is now part of [Bulwark](https://github.com/Azuriel-stream/bulwark)**, a tanking suite with combat
+> alerts, a pre-pull audit and one-key raid marking in one addon. This repository is archived and no longer updated.
+> To move over: install Bulwark and disable TankAuditForever. Bulwark keeps its Audit area switched off while TankAuditForever
+> is still loaded, so nothing runs twice.
+
 **TankAudit Forever** is the WoW: Forever rewrite of **TankAudit**, the pre-pull checklist for tanks. It only shows
 something when you need to act: **no tiles = you're all good**. A tile appears when a buff you should have is **missing**
 (dimmed red) or **about to expire** (live icon with a red countdown). It keeps working **in combat**, which matters when you
